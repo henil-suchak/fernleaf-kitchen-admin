@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { AuthorizationModule } from './authorization/authorization.module';
 import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
+import { ReferenceDataModule } from './reference-data/reference-data.module';
 import { SettingsModule } from './settings/settings.module';
 
 @Module({
@@ -14,6 +15,7 @@ import { SettingsModule } from './settings/settings.module';
     AuthModule,
     AuthorizationModule,
     SettingsModule,
+    ReferenceDataModule,
   ],
   controllers: [HealthController],
 })

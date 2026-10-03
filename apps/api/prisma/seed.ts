@@ -9,6 +9,7 @@ import {
   PermissionCode,
   permissionDescriptions,
 } from '../src/authorization/permission-code';
+import { normalizeReferenceName } from '../src/reference-data/reference-name.util';
 
 const prisma = new PrismaClient();
 
@@ -62,6 +63,12 @@ const defaultKitchenSettings = {
   cutoffWorkingDays: 2,
   cutoffTimeMinutes: 16 * 60,
 };
+
+const referenceData = {
+  allergens: ['Milk', 'Eggs', 'Peanuts', 'Tree Nuts', 'Gluten', 'Soy'],
+  dietaryTags: ['Vegetarian', 'Vegan', 'Halal', 'High Protein'],
+  kitchenStations: ['Hot Kitchen', 'Grill', 'Cold Prep', 'Salad'],
+} as const;
 
 async function seed(): Promise<void> {
   const permissionsByCode = new Map<string, string>();
@@ -130,6 +137,36 @@ async function seed(): Promise<void> {
       ...defaultKitchenSettings,
     },
   });
+
+  for (const value of referenceData.allergens) {
+    const normalized = normalizeReferenceName(value);
+
+    await prisma.allergen.upsert({
+      where: { normalizedName: normalized.normalizedName },
+      update: {},
+      create: normalized,
+    });
+  }
+
+  for (const value of referenceData.dietaryTags) {
+    const normalized = normalizeReferenceName(value);
+
+    await prisma.dietaryTag.upsert({
+      where: { normalizedName: normalized.normalizedName },
+      update: {},
+      create: normalized,
+    });
+  }
+
+  for (const value of referenceData.kitchenStations) {
+    const normalized = normalizeReferenceName(value);
+
+    await prisma.kitchenStation.upsert({
+      where: { normalizedName: normalized.normalizedName },
+      update: {},
+      create: normalized,
+    });
+  }
 }
 
 function normalizeEmail(email: string): string {
@@ -146,7 +183,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 
 seed()
   .then(() => {
-    console.log('Identity and settings seed completed.');
+    console.log('Identity, settings, and reference data seed completed.');
   })
   .catch((error: unknown) => {
     console.error('Identity seed failed.', error);

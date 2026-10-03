@@ -13,7 +13,8 @@
     "db:seed": "prisma db seed",
     "test:authorization": "tsc -p tsconfig.test.json && node --test dist/test/test/authorization.integration.spec.js",
     "test:common": "tsc -p tsconfig.test.json && node --test dist/test/test/common.infrastructure.spec.js",
-    "test:settings": "tsc -p tsconfig.test.json && node --test dist/test/test/settings.integration.spec.js"
+    "test:settings": "tsc -p tsconfig.test.json && node --test dist/test/test/settings.integration.spec.js",
+    "test:reference-data": "tsc -p tsconfig.test.json && node --test dist/test/test/reference-data.integration.spec.js"
   },
   "dependencies": {
     "@fernleaf/contracts": "*",

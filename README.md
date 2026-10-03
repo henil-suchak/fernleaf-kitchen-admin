@@ -77,6 +77,7 @@ npm run build
 npm run test:authorization --workspace=@fernleaf/api
 npm run test:common --workspace=@fernleaf/api
 npm run test:settings --workspace=@fernleaf/api
+npm run test:reference-data --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -177,6 +178,28 @@ The API exposes the cutoff as an `HH:mm` local kitchen time, such as `"16:00"`; 
 Kitchen holidays use PostgreSQL `DATE` values and the strict API format `YYYY-MM-DD`. Duplicate dates are protected by a database unique constraint and return `409 CONFLICT`; deleting an unknown holiday returns `404 NOT_FOUND`. A holiday on a normally non-working weekday is valid and remains useful as a named closure.
 
 Future Orders code should consume read-only kitchen configuration through `SettingsService`, not through the Settings HTTP controller. The future Orders/CutoffCalculator owns the business calculation that combines a delivery date with working days, holidays, cutoff count, cutoff time, and timezone. Company calendars are a separate future Companies concern.
+
+## Reference Data backend
+
+Reference Data provides the canonical values that future Catalogue records will reference. It currently manages allergens, dietary tags, and kitchen stations; it is not the Catalogue and does not include Dish models or relationships.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/reference-data/allergens` | `CATALOGUE_READ` | List all allergens. |
+| `POST` | `/api/reference-data/allergens` | `CATALOGUE_WRITE` | Create an allergen. |
+| `PATCH` | `/api/reference-data/allergens/:id` | `CATALOGUE_WRITE` | Rename, deactivate, or reactivate an allergen. |
+| `GET` | `/api/reference-data/dietary-tags` | `CATALOGUE_READ` | List all dietary tags. |
+| `POST` | `/api/reference-data/dietary-tags` | `CATALOGUE_WRITE` | Create a dietary tag. |
+| `PATCH` | `/api/reference-data/dietary-tags/:id` | `CATALOGUE_WRITE` | Rename, deactivate, or reactivate a dietary tag. |
+| `GET` | `/api/reference-data/kitchen-stations` | `CATALOGUE_READ` | List all kitchen stations. |
+| `POST` | `/api/reference-data/kitchen-stations` | `CATALOGUE_WRITE` | Create a kitchen station. |
+| `PATCH` | `/api/reference-data/kitchen-stations/:id` | `CATALOGUE_WRITE` | Rename, deactivate, or reactivate a kitchen station. |
+
+Reference names are trimmed and internal whitespace is collapsed, while their display capitalization is preserved. A private lowercase `normalizedName` field has a database unique constraint, so `Milk`, `milk`, and ` MILK ` cannot coexist. Duplicate create or rename attempts return `409 CONFLICT`; updating an unknown UUID returns `404 NOT_FOUND`.
+
+There are no delete endpoints. Setting `isActive: false` preserves existing and future historical references while establishing the Catalogue contract that inactive values should not normally be selectable for new or updated dishes. Lists intentionally remain unpaginated because these lookup datasets are small; they return active and inactive records sorted by name.
+
+The seed adds a small local/reviewer starter set: six allergens, four dietary tags, and four kitchen stations. It upserts by `normalizedName` with a no-op update, so repeated runs do not create duplicates or overwrite an existing matching record. It is not a production data-synchronization mechanism; a deliberate administrator rename can result in a baseline item being reintroduced if a developer reruns the seed.
 
 ## Environment variables
 
