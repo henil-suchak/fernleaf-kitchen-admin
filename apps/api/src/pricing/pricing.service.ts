@@ -147,6 +147,16 @@ export class PricingService {
               'A tier with active derived-tier dependants cannot be deactivated.',
             );
           }
+          const activeCompany = await transaction.company.findFirst({
+            where: { pricingTierId: id, isActive: true },
+            select: { id: true },
+          });
+          if (!isActive && current.isActive && activeCompany) {
+            throw pricingBusinessRuleError(
+              'isActive',
+              'A tier assigned to an active Company cannot be deactivated.',
+            );
+          }
           if (
             current.derivationSource === null &&
             configuration.derivationSource !== null &&

@@ -1,12 +1,12 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, the Catalogue backend, and the Pricing backend. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, and Companies backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-No customer-company, employee, menu, order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+No Employee, Menu, Order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -80,6 +80,7 @@ npm run test:settings --workspace=@fernleaf/api
 npm run test:reference-data --workspace=@fernleaf/api
 npm run test:catalogue --workspace=@fernleaf/api
 npm run test:pricing --workspace=@fernleaf/api
+npm run test:companies --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -247,7 +248,7 @@ The idempotent local seed adds two dishes (`Paneer Power Bowl` and `Paneer Garde
 
 ## Pricing backend
 
-Pricing is a backend-only module for assigning prices to catalogue Dishes and Options. It does not attach a tier to a company, resolve a Menu, snapshot an Order, calculate tax, or add a frontend screen.
+Pricing is a backend-only module for assigning prices to catalogue Dishes and Options. Companies may reference an active tier, but the module does not resolve a Menu, snapshot an Order, calculate tax, or add a frontend screen.
 
 A tier has no persisted direct/derived mode. Its behavior is inferred from `derivationSource`:
 
@@ -266,6 +267,33 @@ An item-level explicit price takes precedence as a manual override. A default ti
 | `PUT` | `/api/pricing/tiers/:id/dish-prices` | `PRICING_WRITE` | Atomically upsert/delete explicit Dish prices. |
 | `PUT` | `/api/pricing/tiers/:id/option-prices` | `PRICING_WRITE` | Atomically upsert/delete explicit Option prices. |
 | `GET` | `/api/pricing/tiers/:id/matrix` | `PRICING_READ` | Read active Dish/Option resolved prices and availability. |
+
+## Companies backend
+
+Companies are corporate customers with delivery defaults, addresses, allowed email domains, delivery calendars, an optional active PricingTier, and an optional internal default driver. Company names are deliberately not unique: canonical lowercase email domains are the globally unique business identity.
+
+Company creation is atomic and requires at least one valid domain and one active delivery address. Domains reject URLs, paths, email addresses, wildcards, and a deliberately small blocklist of public domains. Domain replacement is also atomic and always requires at least one domain.
+
+Addresses are soft-deactivated because future Orders will need historical delivery context. An active Company must retain at least one active address. Company working days and holidays only determine whether that Company may receive a delivery; they never modify Kitchen Settings or cutoff calculation.
+
+Delivery time is stored as integer minutes since midnight and exposed as strict `HH:mm`. Packaging is a validated administrator-provided operational string; there is no Packaging table. A default driver must be an active StaffUser with both delivery-own permissions, which is domain validation rather than request authorization.
+
+Any active PricingTier, including a derived tier, can be assigned to a Company. Pricing refuses to deactivate a tier while an active Company references it. Company owner assignment is intentionally deferred to the upcoming Employee module, where a real foreign key can ensure the owner belongs to the Company.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/companies` | `COMPANY_READ` | Paginated Company summaries with search and active filter. |
+| `GET` | `/api/companies/:id` | `COMPANY_READ` | Company details, domains, addresses, holidays, tier, and driver summary. |
+| `POST` | `/api/companies` | `COMPANY_WRITE` | Atomically create a usable Company. |
+| `PATCH` | `/api/companies/:id` | `COMPANY_WRITE` | Update Company fields and assignments. |
+| `PUT` | `/api/companies/:id/domains` | `COMPANY_WRITE` | Atomically replace the complete domain set. |
+| `POST` | `/api/companies/:id/addresses` | `COMPANY_WRITE` | Add an address. |
+| `PATCH` | `/api/companies/:id/addresses/:addressId` | `COMPANY_WRITE` | Update or soft-deactivate an address. |
+| `GET` | `/api/companies/:id/holidays` | `COMPANY_READ` | List Company holidays. |
+| `POST` | `/api/companies/:id/holidays` | `COMPANY_WRITE` | Add a delivery-blocking holiday. |
+| `DELETE` | `/api/companies/:id/holidays/:holidayId` | `COMPANY_WRITE` | Remove a holiday. |
+
+The idempotent seed adds Acme Technologies and Northstar Consulting with distinct domains, active addresses, Monday–Friday defaults, delivery details, PricingTier assignments, and a default driver. It does not seed a Company owner.
 
 ## Environment variables
 

@@ -16,6 +16,8 @@ import {
   normalizeCatalogueName,
   normalizeSku,
 } from '../src/catalogue/catalogue-name.util';
+import { normalizeCompanyDomain } from '../src/companies/company-domain.util';
+import { normalizeCompanyName } from '../src/companies/company-name.util';
 
 const prisma = new PrismaClient();
 
@@ -204,6 +206,7 @@ async function seed(): Promise<void> {
 
   await seedCatalogue();
   await seedPricing();
+  await seedCompanies();
 }
 
 async function seedCatalogue(): Promise<void> {
@@ -355,6 +358,136 @@ async function seedPricing(): Promise<void> {
   await addStandardOptionPrice(standard.id, 'Spicy Mayo', 500);
   await addStandardOptionPrice(standard.id, 'Extra Paneer', 4_000);
   await addStandardOptionPrice(standard.id, 'Extra Cheese', 3_000);
+}
+
+async function seedCompanies(): Promise<void> {
+  const [standard, premium, driver] = await Promise.all([
+    prisma.pricingTier.findUniqueOrThrow({ where: { normalizedName: 'standard' } }),
+    prisma.pricingTier.findUniqueOrThrow({ where: { normalizedName: 'premium' } }),
+    prisma.staffUser.findUniqueOrThrow({ where: { email: 'driver@test.com' } }),
+  ]);
+
+  await seedCompany({
+    name: 'Acme Technologies',
+    domains: ['acme.com', 'acme.in'],
+    billingContactName: 'Acme Accounts',
+    billingContactEmail: 'accounts@acme.com',
+    pricingTierId: premium.id,
+    defaultDriverId: driver.id,
+    deliveryTimeMinutes: 12 * 60 + 30,
+    deliveryMinutesBefore: 60,
+    defaultPackaging: 'Standard boxed meal',
+    driverInstructions: 'Deliver at reception.',
+    addresses: [
+      {
+        label: 'Ahmedabad Office',
+        addressLine1: '1 Commerce Road',
+        city: 'Ahmedabad',
+        stateRegion: 'Gujarat',
+        postalCode: '380009',
+        country: 'India',
+      },
+    ],
+  });
+
+  await seedCompany({
+    name: 'Northstar Consulting',
+    domains: ['northstarconsulting.com'],
+    billingContactName: 'Northstar Finance',
+    billingContactEmail: 'finance@northstarconsulting.com',
+    pricingTierId: standard.id,
+    defaultDriverId: driver.id,
+    deliveryTimeMinutes: 13 * 60,
+    deliveryMinutesBefore: 60,
+    defaultPackaging: 'Standard boxed meal',
+    driverInstructions: 'Call the office desk on arrival.',
+    addresses: [
+      {
+        label: 'Vadodara Office',
+        addressLine1: '44 Sayajigunj Main Road',
+        city: 'Vadodara',
+        stateRegion: 'Gujarat',
+        postalCode: '390005',
+        country: 'India',
+      },
+    ],
+  });
+}
+
+interface CompanySeed {
+  name: string;
+  domains: string[];
+  billingContactName: string;
+  billingContactEmail: string;
+  pricingTierId: string;
+  defaultDriverId: string;
+  deliveryTimeMinutes: number;
+  deliveryMinutesBefore: number;
+  defaultPackaging: string;
+  driverInstructions: string;
+  addresses: Array<{
+    label: string;
+    addressLine1: string;
+    city: string;
+    stateRegion: string;
+    postalCode: string;
+    country: string;
+  }>;
+}
+
+async function seedCompany(seed: CompanySeed): Promise<void> {
+  const primaryDomain = normalizeCompanyDomain(seed.domains[0]);
+  let company = await prisma.companyEmailDomain.findUnique({
+    where: { domain: primaryDomain },
+    select: { company: true },
+  });
+
+  if (!company) {
+    const normalizedName = normalizeCompanyName(seed.name);
+    const created = await prisma.company.create({
+      data: {
+        ...normalizedName,
+        billingContactName: seed.billingContactName,
+        billingContactEmail: seed.billingContactEmail,
+        workingDays: [
+          Weekday.MONDAY,
+          Weekday.TUESDAY,
+          Weekday.WEDNESDAY,
+          Weekday.THURSDAY,
+          Weekday.FRIDAY,
+        ],
+        defaultDeliveryTimeMinutes: seed.deliveryTimeMinutes,
+        deliveryMinutesBefore: seed.deliveryMinutesBefore,
+        defaultPackaging: seed.defaultPackaging,
+        driverInstructions: seed.driverInstructions,
+        pricingTierId: seed.pricingTierId,
+        defaultDriverId: seed.defaultDriverId,
+        emailDomains: {
+          create: seed.domains.map((domain) => ({ domain: normalizeCompanyDomain(domain) })),
+        },
+        addresses: { create: seed.addresses },
+      },
+    });
+    company = { company: created };
+  }
+
+  for (const domainValue of seed.domains) {
+    const domain = normalizeCompanyDomain(domainValue);
+    await prisma.companyEmailDomain.upsert({
+      where: { domain },
+      update: {},
+      create: { companyId: company.company.id, domain },
+    });
+  }
+  for (const address of seed.addresses) {
+    const existing = await prisma.companyAddress.findFirst({
+      where: { companyId: company.company.id, label: address.label },
+      select: { id: true },
+    });
+    if (!existing) {
+      await prisma.companyAddress.create({ data: { companyId: company.company.id, ...address } });
+    }
+  }
 }
 
 async function addOptionMembership(
@@ -518,7 +651,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 
 seed()
   .then(() => {
-    console.log('Identity, settings, reference data, catalogue, and pricing seed completed.');
+  console.log('Identity, settings, reference data, catalogue, pricing, and Companies seed completed.');
   })
   .catch((error: unknown) => {
     console.error('Application seed failed.', error);

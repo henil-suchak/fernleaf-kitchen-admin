@@ -18,14 +18,15 @@ model Role {
 }
 
 model StaffUser {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
-  passwordHash String
-  isActive     Boolean  @default(true)
-  roleId       String   @db.Uuid
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  role         Role     @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                     String    @id @default(uuid()) @db.Uuid
+  email                  String    @unique
+  passwordHash           String
+  isActive               Boolean   @default(true)
+  roleId                 String    @db.Uuid
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  role                   Role      @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  defaultDriverCompanies Company[] @relation("CompanyDefaultDriver")
 }
 
 model Permission {
@@ -237,6 +238,7 @@ model PricingTier {
   derivedTiers     PricingTier[]            @relation("PricingTierBase")
   dishPrices       DishTierPrice[]
   optionPrices     OptionTierPrice[]
+  companies        Company[]                @relation("CompanyPricingTier")
 }
 
 model DishTierPrice {
@@ -257,4 +259,63 @@ model OptionTierPrice {
   option                  Option      @relation(fields: [optionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([pricingTierId, optionId])
+}
+
+model Company {
+  id                         String               @id @default(uuid()) @db.Uuid
+  name                       String               @db.VarChar(160)
+  normalizedName             String               @db.VarChar(160)
+  billingContactName         String               @db.VarChar(120)
+  billingContactEmail        String               @db.VarChar(320)
+  billingContactPhone        String?              @db.VarChar(32)
+  workingDays                Weekday[]            @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY])
+  defaultDeliveryTimeMinutes Int                  @default(750)
+  deliveryMinutesBefore      Int                  @default(60)
+  defaultPackaging           String               @db.VarChar(40)
+  driverInstructions         String?              @db.VarChar(1000)
+  pricingTierId              String?              @db.Uuid
+  defaultDriverId            String?              @db.Uuid
+  isActive                   Boolean              @default(true)
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+  pricingTier                PricingTier?         @relation("CompanyPricingTier", fields: [pricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  defaultDriver              StaffUser?           @relation("CompanyDefaultDriver", fields: [defaultDriverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  emailDomains               CompanyEmailDomain[]
+  addresses                  CompanyAddress[]
+  holidays                   CompanyHoliday[]
+}
+
+model CompanyEmailDomain {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  domain    String   @unique @db.VarChar(253)
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
+
+model CompanyAddress {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  label        String   @db.VarChar(80)
+  addressLine1 String   @db.VarChar(160)
+  addressLine2 String?  @db.VarChar(160)
+  city         String   @db.VarChar(80)
+  stateRegion  String   @db.VarChar(80)
+  postalCode   String   @db.VarChar(32)
+  country      String   @db.VarChar(80)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+}
+
+model CompanyHoliday {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  date      DateTime @db.Date
+  name      String?  @db.VarChar(120)
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([companyId, date])
 }
