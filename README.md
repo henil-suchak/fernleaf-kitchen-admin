@@ -76,6 +76,7 @@ npm run typecheck
 npm run build
 npm run test:authorization --workspace=@fernleaf/api
 npm run test:common --workspace=@fernleaf/api
+npm run test:settings --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -156,6 +157,26 @@ The filter preserves `401` authentication and `403` authorization statuses, prov
 ### Future concurrency convention
 
 No generic lock manager, mutex, Redis lock, or concurrency framework exists. A future state transition that can race must use a database transaction when needed and an atomic/conditional update against its expected current state. If no row changes because another request already changed that state, the endpoint should return `409 CONFLICT`.
+
+## Settings backend
+
+The first business module stores the single kitchen-wide configuration and kitchen closure dates. It does not calculate actual order cutoff dates and does not provide a frontend Settings screen.
+
+The idempotent seed creates the `GLOBAL` kitchen-settings record only when it does not already exist. Its defaults are `Asia/Kolkata`, Monday–Friday, a two-working-day cutoff count, and a `16:00` cutoff time. Re-running the seed deliberately preserves administrator changes. No fictional holidays are seeded.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/settings/kitchen` | `SETTINGS_READ` | Read current kitchen-wide configuration. |
+| `PATCH` | `/api/settings/kitchen` | `SETTINGS_WRITE` | Update one or more settings fields. |
+| `GET` | `/api/settings/kitchen/holidays` | `SETTINGS_READ` | List holidays by ascending date with standard pagination. |
+| `POST` | `/api/settings/kitchen/holidays` | `SETTINGS_WRITE` | Add one kitchen closure date. |
+| `DELETE` | `/api/settings/kitchen/holidays/:id` | `SETTINGS_WRITE` | Delete a closure date. |
+
+The API exposes the cutoff as an `HH:mm` local kitchen time, such as `"16:00"`; internally it persists integer minutes from midnight (`960`). Working days use the fixed weekday values, must be non-empty and unique, and are normalized to Monday–Sunday order. The timezone is an IANA string validated through Luxon.
+
+Kitchen holidays use PostgreSQL `DATE` values and the strict API format `YYYY-MM-DD`. Duplicate dates are protected by a database unique constraint and return `409 CONFLICT`; deleting an unknown holiday returns `404 NOT_FOUND`. A holiday on a normally non-working weekday is valid and remains useful as a named closure.
+
+Future Orders code should consume read-only kitchen configuration through `SettingsService`, not through the Settings HTTP controller. The future Orders/CutoffCalculator owns the business calculation that combines a delivery date with working days, holidays, cutoff count, cutoff time, and timezone. Company calendars are a separate future Companies concern.
 
 ## Environment variables
 

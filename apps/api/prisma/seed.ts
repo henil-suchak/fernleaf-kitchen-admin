@@ -1,4 +1,8 @@
-import { PrismaClient } from '@prisma/client';
+import {
+  KitchenSettingsKey,
+  PrismaClient,
+  Weekday,
+} from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 import {
@@ -45,6 +49,19 @@ const staffAccounts: ReadonlyArray<{ email: string; roleCode: RoleCode }> = [
   { email: 'dispatch@test.com', roleCode: 'DISPATCH' },
   { email: 'driver@test.com', roleCode: 'DRIVER' },
 ];
+
+const defaultKitchenSettings = {
+  timezone: 'Asia/Kolkata',
+  workingDays: [
+    Weekday.MONDAY,
+    Weekday.TUESDAY,
+    Weekday.WEDNESDAY,
+    Weekday.THURSDAY,
+    Weekday.FRIDAY,
+  ],
+  cutoffWorkingDays: 2,
+  cutoffTimeMinutes: 16 * 60,
+};
 
 async function seed(): Promise<void> {
   const permissionsByCode = new Map<string, string>();
@@ -104,6 +121,15 @@ async function seed(): Promise<void> {
       },
     });
   }
+
+  await prisma.kitchenSettings.upsert({
+    where: { key: KitchenSettingsKey.GLOBAL },
+    update: {},
+    create: {
+      key: KitchenSettingsKey.GLOBAL,
+      ...defaultKitchenSettings,
+    },
+  });
 }
 
 function normalizeEmail(email: string): string {
@@ -120,7 +146,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 
 seed()
   .then(() => {
-    console.log('Identity seed completed.');
+    console.log('Identity and settings seed completed.');
   })
   .catch((error: unknown) => {
     console.error('Identity seed failed.', error);

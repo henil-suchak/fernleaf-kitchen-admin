@@ -43,3 +43,34 @@ model RolePermission {
 
   @@id([roleId, permissionId])
 }
+
+enum KitchenSettingsKey {
+  GLOBAL
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model KitchenSettings {
+  key               KitchenSettingsKey @id @default(GLOBAL)
+  timezone          String             @db.VarChar(64)
+  workingDays       Weekday[]
+  cutoffWorkingDays Int
+  cutoffTimeMinutes Int
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model KitchenHoliday {
+  id        String   @id @default(uuid()) @db.Uuid
+  date      DateTime @unique @db.Date
+  name      String?  @db.VarChar(120)
+  createdAt DateTime @default(now())
+}
