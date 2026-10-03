@@ -1,6 +1,6 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, and backend-only staff authentication. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication, and backend permission authorization. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
@@ -74,11 +74,12 @@ npm run db:generate --workspace=@fernleaf/api
 npm run lint
 npm run typecheck
 npm run build
+npm run test:authorization --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
 
-Foundation Step 2B adds backend-only staff authentication. There is deliberately no frontend login page, frontend session state, frontend route protection, or permission-based authorization yet.
+Foundation Step 2B adds backend-only staff authentication. There is deliberately no frontend login page, frontend session state, or frontend route protection yet.
 
 Authentication uses an HttpOnly cookie containing a short JWT payload:
 
@@ -103,7 +104,22 @@ Login accepts:
 
 The idempotent seed also creates `kitchen@test.com`, `dispatch@test.com`, and `driver@test.com`, each with password `Test@1234`. These are required local/reviewer test accounts, not production credentials.
 
-Authentication identifies the current staff user. Permission-based authorization is intentionally deferred to the next step; permissions are not stored in JWTs.
+## Backend permission authorization
+
+Foundation Step 2C adds reusable, backend-only permission authorization. It does not introduce a business module or any production business endpoint yet.
+
+Use it on a future protected controller or handler with both guards and the permission decorator:
+
+```ts
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(PermissionCode.KITCHEN_UPDATE)
+```
+
+`JwtAuthGuard` authenticates the request and attaches the current `staffUser`. `PermissionsGuard` then reads the required permissions and queries the current role-permission mappings in PostgreSQL through `AuthorizationService`.
+
+All declared permissions are required. Missing authentication returns `401`; an authenticated user without every required permission receives `403`. Permissions are deliberately not stored in JWTs, so a changed database mapping takes effect for an existing valid JWT on its next request.
+
+Permission codes are defined once in `apps/api/src/authorization/permission-code.ts` and are also used by the idempotent Prisma seed. The focused integration suite validates the ADMIN, KITCHEN, and DRIVER mappings; authentication failures; all-permission semantics; and live database mapping changes.
 
 ## Environment variables
 
