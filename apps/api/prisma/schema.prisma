@@ -76,21 +76,23 @@ model KitchenHoliday {
 }
 
 model Allergen {
-  id             String   @id @default(uuid()) @db.Uuid
-  name           String   @db.VarChar(80)
-  normalizedName String   @unique @db.VarChar(80)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id             String         @id @default(uuid()) @db.Uuid
+  name           String         @db.VarChar(80)
+  normalizedName String         @unique @db.VarChar(80)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  dishAllergens  DishAllergen[]
 }
 
 model DietaryTag {
-  id             String   @id @default(uuid()) @db.Uuid
-  name           String   @db.VarChar(80)
-  normalizedName String   @unique @db.VarChar(80)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String           @db.VarChar(80)
+  normalizedName  String           @unique @db.VarChar(80)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  dishDietaryTags DishDietaryTag[]
 }
 
 model KitchenStation {
@@ -100,4 +102,92 @@ model KitchenStation {
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  dishes         Dish[]
+}
+
+enum DishTemperature {
+  HOT
+  COLD
+  AMBIENT
+}
+
+model Dish {
+  id               String            @id @default(uuid()) @db.Uuid
+  name             String            @db.VarChar(120)
+  description      String?           @db.VarChar(1000)
+  imageUrl         String?           @db.VarChar(2048)
+  sku              String            @unique @db.VarChar(64)
+  temperature      DishTemperature
+  costMinorUnits   Int
+  minimumQuantity  Int
+  isActive         Boolean           @default(true)
+  kitchenStationId String?           @db.Uuid
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  kitchenStation   KitchenStation?   @relation(fields: [kitchenStationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  dishAllergens    DishAllergen[]
+  dishDietaryTags  DishDietaryTag[]
+  dishOptionGroups DishOptionGroup[]
+}
+
+model Option {
+  id                 String              @id @default(uuid()) @db.Uuid
+  name               String              @db.VarChar(80)
+  normalizedName     String              @unique @db.VarChar(80)
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  optionGroupOptions OptionGroupOption[]
+}
+
+model OptionGroup {
+  id                 String              @id @default(uuid()) @db.Uuid
+  name               String              @db.VarChar(80)
+  normalizedName     String              @unique @db.VarChar(80)
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  dishOptionGroups   DishOptionGroup[]
+  optionGroupOptions OptionGroupOption[]
+}
+
+model DishOptionGroup {
+  dishId        String      @db.Uuid
+  optionGroupId String      @db.Uuid
+  isRequired    Boolean
+  sortOrder     Int
+  dish          Dish        @relation(fields: [dishId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  optionGroup   OptionGroup @relation(fields: [optionGroupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([dishId, optionGroupId])
+  @@unique([dishId, sortOrder])
+}
+
+model OptionGroupOption {
+  optionGroupId String      @db.Uuid
+  optionId      String      @db.Uuid
+  sortOrder     Int
+  optionGroup   OptionGroup @relation(fields: [optionGroupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  option        Option      @relation(fields: [optionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([optionGroupId, optionId])
+  @@unique([optionGroupId, sortOrder])
+}
+
+model DishAllergen {
+  dishId     String   @db.Uuid
+  allergenId String   @db.Uuid
+  dish       Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  allergen   Allergen @relation(fields: [allergenId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([dishId, allergenId])
+}
+
+model DishDietaryTag {
+  dishId       String     @db.Uuid
+  dietaryTagId String     @db.Uuid
+  dish         Dish       @relation(fields: [dishId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  dietaryTag   DietaryTag @relation(fields: [dietaryTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([dishId, dietaryTagId])
 }
