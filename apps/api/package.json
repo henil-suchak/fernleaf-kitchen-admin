@@ -9,7 +9,8 @@
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "prisma generate",
-    "db:validate": "prisma validate"
+    "db:validate": "prisma validate",
+    "db:seed": "prisma db seed"
   },
   "dependencies": {
     "@fernleaf/contracts": "*",
@@ -18,16 +19,22 @@
     "@nestjs/core": "^11.1.9",
     "@nestjs/platform-express": "^11.1.9",
     "@prisma/client": "^6.19.0",
+    "bcrypt": "^6.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.11",
+    "@types/bcrypt": "^5.0.2",
     "@types/node": "^24.10.1",
     "@eslint/js": "^9.39.1",
     "eslint": "^9.39.1",
     "prisma": "^6.19.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
