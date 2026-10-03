@@ -173,6 +173,15 @@ export class CompanyService {
           if (input.defaultDriverId !== undefined) {
             await validateDefaultDriver(transaction, input.defaultDriverId);
           }
+          if (input.ownerEmployeeId !== undefined) {
+            await validateOwnerEmployee(
+              transaction,
+              id,
+              isActive,
+              current.ownerEmployeeId,
+              input.ownerEmployeeId,
+            );
+          }
 
           const data: Prisma.CompanyUncheckedUpdateInput = { isActive };
           if (input.name !== undefined) Object.assign(data, normalizeCompanyName(input.name));
@@ -194,6 +203,7 @@ export class CompanyService {
           if (input.driverInstructions !== undefined) data.driverInstructions = input.driverInstructions;
           if (input.pricingTierId !== undefined) data.pricingTierId = input.pricingTierId;
           if (input.defaultDriverId !== undefined) data.defaultDriverId = input.defaultDriverId;
+          if (input.ownerEmployeeId !== undefined) data.ownerEmployeeId = input.ownerEmployeeId;
 
           return transaction.company.update({ where: { id }, data, include: companyInclude });
         },
@@ -409,6 +419,48 @@ async function validateDefaultDriver(
     throw companyBusinessRuleError(
       'defaultDriverId',
       'Default driver must have delivery permissions.',
+    );
+  }
+}
+
+async function validateOwnerEmployee(
+  transaction: Prisma.TransactionClient,
+  companyId: string,
+  companyIsActive: boolean,
+  currentOwnerEmployeeId: string | null,
+  ownerEmployeeId: string | null,
+): Promise<void> {
+  if (ownerEmployeeId === null) {
+    if (currentOwnerEmployeeId !== null) {
+      throw companyBusinessRuleError(
+        'ownerEmployeeId',
+        'A Company owner must be replaced, not cleared.',
+      );
+    }
+    return;
+  }
+  if (!companyIsActive) {
+    throw companyBusinessRuleError('ownerEmployeeId', 'Company must be active to assign an owner.');
+  }
+  const employee = await transaction.employee.findUnique({
+    where: { id: ownerEmployeeId },
+    select: { companyId: true, isActive: true },
+  });
+  if (!employee) throw new NotFoundException('Owner Employee not found.');
+  if (!employee.isActive || employee.companyId !== companyId) {
+    throw companyBusinessRuleError(
+      'ownerEmployeeId',
+      'Owner must be an active Employee of this Company.',
+    );
+  }
+  const otherOwnedCompany = await transaction.company.findFirst({
+    where: { ownerEmployeeId, id: { not: companyId } },
+    select: { id: true },
+  });
+  if (otherOwnedCompany) {
+    throw companyBusinessRuleError(
+      'ownerEmployeeId',
+      'Employee already owns another Company.',
     );
   }
 }

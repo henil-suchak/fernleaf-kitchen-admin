@@ -1,12 +1,12 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, and Companies backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, and Employees backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-No Employee, Menu, Order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+No Menu, Order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -81,6 +81,7 @@ npm run test:reference-data --workspace=@fernleaf/api
 npm run test:catalogue --workspace=@fernleaf/api
 npm run test:pricing --workspace=@fernleaf/api
 npm run test:companies --workspace=@fernleaf/api
+npm run test:employees --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -278,7 +279,7 @@ Addresses are soft-deactivated because future Orders will need historical delive
 
 Delivery time is stored as integer minutes since midnight and exposed as strict `HH:mm`. Packaging is a validated administrator-provided operational string; there is no Packaging table. A default driver must be an active StaffUser with both delivery-own permissions, which is domain validation rather than request authorization.
 
-Any active PricingTier, including a derived tier, can be assigned to a Company. Pricing refuses to deactivate a tier while an active Company references it. Company owner assignment is intentionally deferred to the upcoming Employee module, where a real foreign key can ensure the owner belongs to the Company.
+Any active PricingTier, including a derived tier, can be assigned to a Company. Pricing refuses to deactivate a tier while an active Company references it. A Company now has an optional `ownerEmployeeId` foreign key. Owner assignment is handled through the existing Company `PATCH` endpoint because the Company owns that relationship.
 
 | Method | Endpoint | Permission | Purpose |
 | --- | --- | --- | --- |
@@ -293,7 +294,29 @@ Any active PricingTier, including a derived tier, can be assigned to a Company. 
 | `POST` | `/api/companies/:id/holidays` | `COMPANY_WRITE` | Add a delivery-blocking holiday. |
 | `DELETE` | `/api/companies/:id/holidays/:holidayId` | `COMPANY_WRITE` | Remove a holiday. |
 
-The idempotent seed adds Acme Technologies and Northstar Consulting with distinct domains, active addresses, Monday–Friday defaults, delivery details, PricingTier assignments, and a default driver. It does not seed a Company owner.
+The idempotent seed adds Acme Technologies and Northstar Consulting with distinct domains, active addresses, Monday–Friday defaults, delivery details, PricingTier assignments, a default driver, and seeded Employees with owners.
+
+## Employees backend
+
+Employees are people at a Company who can later place or manage meal orders. They are not `StaffUser` accounts and cannot authenticate to the admin API. This module intentionally stores one required full `name` field rather than prematurely inventing first/middle/last-name rules.
+
+An Employee belongs to exactly one Company. The database stores the trimmed, lowercase email directly in `Employee.email` and enforces `@@unique([companyId, email])`: the same email may exist at different Companies but not twice within one Company. The API does not apply an email-domain-to-Company rule because that would make an Employee's identity depend on a mutable Company-domain setting.
+
+Employees can optionally record a phone number and three future self-service preferences: `canChooseDeliveryAddress`, `canChangeDeliveryTime`, and `canChangePackaging`. All flags default to `false`. Allergens and dietary tags use explicit join tables (`EmployeeAllergen` and `EmployeeDietaryTag`) rather than JSON arrays, so their foreign keys protect data integrity and future queries remain straightforward.
+
+New Employees, moves, reactivations, and new preference assignments require active referenced records. Existing Employee details remain readable after their Company, allergen, or dietary tag becomes inactive, preserving historical context. A supplied `allergenIds` or `dietaryTagIds` array replaces that complete membership; omitting it leaves the corresponding membership unchanged.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/employees` | `EMPLOYEE_READ` | Paginated Employee summaries with optional name/email search, Company, and active filters. |
+| `GET` | `/api/employees/:id` | `EMPLOYEE_READ` | Employee details, including preferences and active/inactive reference visibility. |
+| `POST` | `/api/employees` | `EMPLOYEE_WRITE` | Create an Employee at an active Company. |
+| `PATCH` | `/api/employees/:id` | `EMPLOYEE_WRITE` | Update Employee fields, replace supplied preferences, move, activate, or deactivate. |
+| `PATCH` | `/api/companies/:id` | `COMPANY_WRITE` | Assign or replace the optional `ownerEmployeeId` for that Company. |
+
+Company ownership is a guarded compatibility rule: an owner must be active, belong to that same active Company, and may not own another Company. An existing owner must be replaced rather than cleared. The current owner cannot be moved or deactivated until reassigned. Simple Employee create/update work uses normal Prisma transactions; the ownership-sensitive move, deactivation, and owner-assignment paths use serializable transactions because they can race with ownership changes.
+
+The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import, Menu, Orders, Kitchen, Dispatch, Billing, and frontend work are intentionally not implemented.
 
 ## Environment variables
 

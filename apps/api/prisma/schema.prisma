@@ -77,25 +77,27 @@ model KitchenHoliday {
 }
 
 model Allergen {
-  id              String           @id @default(uuid()) @db.Uuid
-  name            String           @db.VarChar(80)
-  normalizedName  String           @unique @db.VarChar(80)
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  dishAllergens   DishAllergen[]
-  optionAllergens OptionAllergen[]
-}
-
-model DietaryTag {
   id                String             @id @default(uuid()) @db.Uuid
   name              String             @db.VarChar(80)
   normalizedName    String             @unique @db.VarChar(80)
   isActive          Boolean            @default(true)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
-  dishDietaryTags   DishDietaryTag[]
-  optionDietaryTags OptionDietaryTag[]
+  dishAllergens     DishAllergen[]
+  optionAllergens   OptionAllergen[]
+  employeeAllergens EmployeeAllergen[]
+}
+
+model DietaryTag {
+  id                  String               @id @default(uuid()) @db.Uuid
+  name                String               @db.VarChar(80)
+  normalizedName      String               @unique @db.VarChar(80)
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  dishDietaryTags     DishDietaryTag[]
+  optionDietaryTags   OptionDietaryTag[]
+  employeeDietaryTags EmployeeDietaryTag[]
 }
 
 model KitchenStation {
@@ -275,11 +277,14 @@ model Company {
   driverInstructions         String?              @db.VarChar(1000)
   pricingTierId              String?              @db.Uuid
   defaultDriverId            String?              @db.Uuid
+  ownerEmployeeId            String?              @unique @db.Uuid
   isActive                   Boolean              @default(true)
   createdAt                  DateTime             @default(now())
   updatedAt                  DateTime             @updatedAt
   pricingTier                PricingTier?         @relation("CompanyPricingTier", fields: [pricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   defaultDriver              StaffUser?           @relation("CompanyDefaultDriver", fields: [defaultDriverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  ownerEmployee              Employee?            @relation("CompanyOwner", fields: [ownerEmployeeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  employees                  Employee[]           @relation("CompanyEmployees")
   emailDomains               CompanyEmailDomain[]
   addresses                  CompanyAddress[]
   holidays                   CompanyHoliday[]
@@ -318,4 +323,42 @@ model CompanyHoliday {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([companyId, date])
+}
+
+model Employee {
+  id                       String               @id @default(uuid()) @db.Uuid
+  companyId                String               @db.Uuid
+  name                     String               @db.VarChar(160)
+  email                    String               @db.VarChar(320)
+  phone                    String?              @db.VarChar(32)
+  canChooseDeliveryAddress Boolean              @default(false)
+  canChangeDeliveryTime    Boolean              @default(false)
+  canChangePackaging       Boolean              @default(false)
+  isActive                 Boolean              @default(true)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  company                  Company              @relation("CompanyEmployees", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  allergens                EmployeeAllergen[]
+  dietaryTags              EmployeeDietaryTag[]
+  ownedCompany             Company?             @relation("CompanyOwner")
+
+  @@unique([companyId, email])
+}
+
+model EmployeeAllergen {
+  employeeId String   @db.Uuid
+  allergenId String   @db.Uuid
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  allergen   Allergen @relation(fields: [allergenId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([employeeId, allergenId])
+}
+
+model EmployeeDietaryTag {
+  employeeId   String     @db.Uuid
+  dietaryTagId String     @db.Uuid
+  employee     Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  dietaryTag   DietaryTag @relation(fields: [dietaryTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([employeeId, dietaryTagId])
 }

@@ -83,6 +83,10 @@ export class UpdateCompanyDto {
   defaultDriverId?: string | null;
 
   @IsOptional()
+  @IsUUID('4')
+  ownerEmployeeId?: string | null;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 }

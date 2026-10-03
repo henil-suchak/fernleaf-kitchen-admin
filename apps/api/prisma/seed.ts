@@ -207,6 +207,7 @@ async function seed(): Promise<void> {
   await seedCatalogue();
   await seedPricing();
   await seedCompanies();
+  await seedEmployees();
 }
 
 async function seedCatalogue(): Promise<void> {
@@ -412,6 +413,124 @@ async function seedCompanies(): Promise<void> {
       },
     ],
   });
+}
+
+async function seedEmployees(): Promise<void> {
+  const [acme, northstar, milk, eggs, vegetarian, vegan] = await Promise.all([
+    findSeedCompany('acme.com'),
+    findSeedCompany('northstarconsulting.com'),
+    getAllergen('Milk'),
+    getAllergen('Eggs'),
+    getDietaryTag('Vegetarian'),
+    getDietaryTag('Vegan'),
+  ]);
+
+  const [acmeOwner] = await Promise.all([
+    seedEmployee({
+      companyId: acme.id,
+      name: 'Rahul Shah',
+      email: 'rahul@acme.com',
+      phone: '+91 98765 43210',
+      canChooseDeliveryAddress: true,
+      canChangePackaging: true,
+      allergenIds: [milk.id],
+      dietaryTagIds: [vegetarian.id],
+    }),
+    seedEmployee({
+      companyId: acme.id,
+      name: 'Sneha Patel',
+      email: 'sneha@acme.com',
+      canChangeDeliveryTime: true,
+      allergenIds: [eggs.id],
+      dietaryTagIds: [vegan.id],
+    }),
+  ]);
+
+  const [northstarOwner] = await Promise.all([
+    seedEmployee({
+      companyId: northstar.id,
+      name: 'Maya Desai',
+      email: 'maya@northstarconsulting.com',
+      canChooseDeliveryAddress: true,
+      canChangeDeliveryTime: true,
+      allergenIds: [milk.id],
+      dietaryTagIds: [vegetarian.id],
+    }),
+    seedEmployee({
+      companyId: northstar.id,
+      name: 'Kunal Mehta',
+      email: 'kunal@northstarconsulting.com',
+      canChangePackaging: true,
+      allergenIds: [eggs.id],
+      dietaryTagIds: [vegan.id],
+    }),
+  ]);
+
+  await Promise.all([
+    prisma.company.updateMany({
+      where: { id: acme.id, ownerEmployeeId: null },
+      data: { ownerEmployeeId: acmeOwner.id },
+    }),
+    prisma.company.updateMany({
+      where: { id: northstar.id, ownerEmployeeId: null },
+      data: { ownerEmployeeId: northstarOwner.id },
+    }),
+  ]);
+}
+
+interface EmployeeSeed {
+  companyId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  canChooseDeliveryAddress?: boolean;
+  canChangeDeliveryTime?: boolean;
+  canChangePackaging?: boolean;
+  allergenIds: string[];
+  dietaryTagIds: string[];
+}
+
+async function seedEmployee(seed: EmployeeSeed) {
+  const employee = await prisma.employee.upsert({
+    where: { companyId_email: { companyId: seed.companyId, email: normalizeEmail(seed.email) } },
+    update: {},
+    create: {
+      companyId: seed.companyId,
+      name: seed.name,
+      email: normalizeEmail(seed.email),
+      phone: seed.phone ?? null,
+      canChooseDeliveryAddress: seed.canChooseDeliveryAddress ?? false,
+      canChangeDeliveryTime: seed.canChangeDeliveryTime ?? false,
+      canChangePackaging: seed.canChangePackaging ?? false,
+    },
+  });
+
+  await Promise.all([
+    ...seed.allergenIds.map((allergenId) =>
+      prisma.employeeAllergen.upsert({
+        where: { employeeId_allergenId: { employeeId: employee.id, allergenId } },
+        update: {},
+        create: { employeeId: employee.id, allergenId },
+      }),
+    ),
+    ...seed.dietaryTagIds.map((dietaryTagId) =>
+      prisma.employeeDietaryTag.upsert({
+        where: { employeeId_dietaryTagId: { employeeId: employee.id, dietaryTagId } },
+        update: {},
+        create: { employeeId: employee.id, dietaryTagId },
+      }),
+    ),
+  ]);
+
+  return employee;
+}
+
+async function findSeedCompany(domain: string) {
+  const companyDomain = await prisma.companyEmailDomain.findUnique({
+    where: { domain: normalizeCompanyDomain(domain) },
+    select: { company: { select: { id: true } } },
+  });
+  return requiredValue(companyDomain, `Company domain ${domain}`).company;
 }
 
 interface CompanySeed {
@@ -651,7 +770,9 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 
 seed()
   .then(() => {
-  console.log('Identity, settings, reference data, catalogue, pricing, and Companies seed completed.');
+    console.log(
+      'Identity, settings, reference data, catalogue, pricing, Companies, and Employees seed completed.',
+    );
   })
   .catch((error: unknown) => {
     console.error('Application seed failed.', error);
