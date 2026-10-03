@@ -6,7 +6,6 @@ import {
   Post,
   Res,
   UseGuards,
-  ValidationPipe,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
@@ -27,8 +26,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(
-    @Body(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-    loginDto: LoginDto,
+    @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ user: AuthenticatedStaff }> {
     const result = await this.authService.login(loginDto);
