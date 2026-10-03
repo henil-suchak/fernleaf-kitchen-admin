@@ -13,7 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequirePermissions } from '../authorization/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../authorization/guards/permissions.guard';
 import { PermissionCode } from '../authorization/permission-code';
-import type { CatalogueValueResponse } from './catalogue.types';
+import type { OptionResponse } from './catalogue.types';
 import { CreateOptionDto } from './dto/create-option.dto';
 import { UpdateOptionDto } from './dto/update-option.dto';
 import { OptionService } from './option.service';
@@ -25,13 +25,13 @@ export class OptionsController {
 
   @Get()
   @RequirePermissions(PermissionCode.CATALOGUE_READ)
-  listOptions(): Promise<CatalogueValueResponse[]> {
+  listOptions(): Promise<OptionResponse[]> {
     return this.optionService.listOptions();
   }
 
   @Post()
   @RequirePermissions(PermissionCode.CATALOGUE_WRITE)
-  createOption(@Body() input: CreateOptionDto): Promise<CatalogueValueResponse> {
+  createOption(@Body() input: CreateOptionDto): Promise<OptionResponse> {
     return this.optionService.createOption(input);
   }
 
@@ -40,7 +40,7 @@ export class OptionsController {
   updateOption(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() input: UpdateOptionDto,
-  ): Promise<CatalogueValueResponse> {
+  ): Promise<OptionResponse> {
     return this.optionService.updateOption(id, input);
   }
 }

@@ -76,23 +76,25 @@ model KitchenHoliday {
 }
 
 model Allergen {
-  id             String         @id @default(uuid()) @db.Uuid
-  name           String         @db.VarChar(80)
-  normalizedName String         @unique @db.VarChar(80)
-  isActive       Boolean        @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  dishAllergens  DishAllergen[]
-}
-
-model DietaryTag {
   id              String           @id @default(uuid()) @db.Uuid
   name            String           @db.VarChar(80)
   normalizedName  String           @unique @db.VarChar(80)
   isActive        Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
-  dishDietaryTags DishDietaryTag[]
+  dishAllergens   DishAllergen[]
+  optionAllergens OptionAllergen[]
+}
+
+model DietaryTag {
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String             @db.VarChar(80)
+  normalizedName    String             @unique @db.VarChar(80)
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  dishDietaryTags   DishDietaryTag[]
+  optionDietaryTags OptionDietaryTag[]
 }
 
 model KitchenStation {
@@ -128,16 +130,21 @@ model Dish {
   dishAllergens    DishAllergen[]
   dishDietaryTags  DishDietaryTag[]
   dishOptionGroups DishOptionGroup[]
+  dishPrices       DishTierPrice[]
 }
 
 model Option {
   id                 String              @id @default(uuid()) @db.Uuid
   name               String              @db.VarChar(80)
   normalizedName     String              @unique @db.VarChar(80)
+  costMinorUnits     Int                 @default(0)
   isActive           Boolean             @default(true)
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   optionGroupOptions OptionGroupOption[]
+  optionAllergens    OptionAllergen[]
+  optionDietaryTags  OptionDietaryTag[]
+  optionPrices       OptionTierPrice[]
 }
 
 model OptionGroup {
@@ -190,4 +197,64 @@ model DishDietaryTag {
   dietaryTag   DietaryTag @relation(fields: [dietaryTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([dishId, dietaryTagId])
+}
+
+model OptionAllergen {
+  optionId   String   @db.Uuid
+  allergenId String   @db.Uuid
+  option     Option   @relation(fields: [optionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  allergen   Allergen @relation(fields: [allergenId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([optionId, allergenId])
+}
+
+model OptionDietaryTag {
+  optionId     String     @db.Uuid
+  dietaryTagId String     @db.Uuid
+  option       Option     @relation(fields: [optionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  dietaryTag   DietaryTag @relation(fields: [dietaryTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([optionId, dietaryTagId])
+}
+
+enum PricingDerivationSource {
+  BASE_TIER
+  ITEM_COST
+}
+
+model PricingTier {
+  id               String                   @id @default(uuid()) @db.Uuid
+  name             String                   @db.VarChar(80)
+  normalizedName   String                   @unique @db.VarChar(80)
+  isDefault        Boolean                  @default(false)
+  isActive         Boolean                  @default(true)
+  derivationSource PricingDerivationSource?
+  baseTierId       String?                  @db.Uuid
+  multiplierBps    Int?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  baseTier         PricingTier?             @relation("PricingTierBase", fields: [baseTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  derivedTiers     PricingTier[]            @relation("PricingTierBase")
+  dishPrices       DishTierPrice[]
+  optionPrices     OptionTierPrice[]
+}
+
+model DishTierPrice {
+  pricingTierId           String      @db.Uuid
+  dishId                  String      @db.Uuid
+  explicitPriceMinorUnits Int
+  pricingTier             PricingTier @relation(fields: [pricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  dish                    Dish        @relation(fields: [dishId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([pricingTierId, dishId])
+}
+
+model OptionTierPrice {
+  pricingTierId           String      @db.Uuid
+  optionId                String      @db.Uuid
+  explicitPriceMinorUnits Int
+  pricingTier             PricingTier @relation(fields: [pricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  option                  Option      @relation(fields: [optionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([pricingTierId, optionId])
 }

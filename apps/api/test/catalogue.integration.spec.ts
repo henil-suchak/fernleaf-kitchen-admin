@@ -216,29 +216,37 @@ describe('catalogue module', () => {
     const first = await request(app.getHttpServer())
       .post('/api/catalogue/options')
       .set('Cookie', admin)
-      .send({ name: '  Catalogue   Test Rice ' })
+      .send({
+        name: '  Catalogue   Test Rice ',
+        costMinorUnits: 500,
+        allergenIds: [activeAllergenId],
+        dietaryTagIds: [activeDietaryTagId],
+      })
       .expect(201);
     optionOneId = first.body.id as string;
     assert.equal(first.body.name, 'Catalogue Test Rice');
+    assert.equal(first.body.costMinorUnits, 500);
+    assert.equal(first.body.allergens[0].id, activeAllergenId);
+    assert.equal(first.body.dietaryTags[0].id, activeDietaryTagId);
 
     const duplicate = await request(app.getHttpServer())
       .post('/api/catalogue/options')
       .set('Cookie', admin)
-      .send({ name: 'catalogue test rice' })
+      .send({ name: 'catalogue test rice', costMinorUnits: 500 })
       .expect(409);
     assert.equal(duplicate.body.code, 'CONFLICT');
 
     const second = await request(app.getHttpServer())
       .post('/api/catalogue/options')
       .set('Cookie', admin)
-      .send({ name: 'Catalogue Test Sauce' })
+      .send({ name: 'Catalogue Test Sauce', costMinorUnits: 300 })
       .expect(201);
     optionTwoId = second.body.id as string;
 
     const inactive = await request(app.getHttpServer())
       .post('/api/catalogue/options')
       .set('Cookie', admin)
-      .send({ name: 'Catalogue Test Inactive Option' })
+      .send({ name: 'Catalogue Test Inactive Option', costMinorUnits: 100 })
       .expect(201);
     inactiveOptionId = inactive.body.id as string;
     await request(app.getHttpServer())
@@ -246,6 +254,37 @@ describe('catalogue module', () => {
       .set('Cookie', admin)
       .send({ isActive: false })
       .expect(200);
+  });
+
+  it('rejects invalid option cost and inactive option reference assignments', async () => {
+    const admin = await adminCookie();
+    await request(app.getHttpServer())
+      .post('/api/catalogue/options')
+      .set('Cookie', admin)
+      .send({ name: 'Catalogue Test Negative Cost', costMinorUnits: -1 })
+      .expect(400);
+
+    const inactiveAllergen = await request(app.getHttpServer())
+      .post('/api/catalogue/options')
+      .set('Cookie', admin)
+      .send({
+        name: 'Catalogue Test Inactive Allergen Option',
+        costMinorUnits: 100,
+        allergenIds: [inactiveAllergenId],
+      })
+      .expect(400);
+    assert.equal(inactiveAllergen.body.code, 'BUSINESS_RULE_VIOLATION');
+
+    const inactiveDietaryTag = await request(app.getHttpServer())
+      .post('/api/catalogue/options')
+      .set('Cookie', admin)
+      .send({
+        name: 'Catalogue Test Inactive Dietary Tag Option',
+        costMinorUnits: 100,
+        dietaryTagIds: [inactiveDietaryTagId],
+      })
+      .expect(400);
+    assert.equal(inactiveDietaryTag.body.code, 'BUSINESS_RULE_VIOLATION');
   });
 
   it('creates reusable option groups and rejects a normalized duplicate', async () => {
@@ -394,6 +433,8 @@ describe('catalogue module', () => {
     assert.equal(response.body.dietaryTags[0].isActive, false);
     assert.equal(response.body.optionGroups[0].isActive, false);
     assert.equal(response.body.optionGroups[0].options[1].isActive, false);
+    assert.equal(response.body.optionGroups[0].options[1].allergens[0].isActive, false);
+    assert.equal(response.body.optionGroups[0].options[1].dietaryTags[0].isActive, false);
   });
 
   async function removeTestData(): Promise<void> {

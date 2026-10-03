@@ -8,6 +8,17 @@ export interface CatalogueValueResponse {
   updatedAt: string;
 }
 
+export interface OptionResponse {
+  id: string;
+  name: string;
+  costMinorUnits: number;
+  isActive: boolean;
+  allergens: CatalogueReferenceResponse[];
+  dietaryTags: CatalogueReferenceResponse[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CatalogueReferenceResponse {
   id: string;
   name: string;
@@ -27,6 +38,9 @@ export interface DishListItemResponse {
 }
 
 export interface DishOptionResponse extends CatalogueReferenceResponse {
+  costMinorUnits: number;
+  allergens: CatalogueReferenceResponse[];
+  dietaryTags: CatalogueReferenceResponse[];
   sortOrder: number;
 }
 

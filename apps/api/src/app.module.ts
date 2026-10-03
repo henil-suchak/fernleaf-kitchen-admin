@@ -6,6 +6,7 @@ import { AuthorizationModule } from './authorization/authorization.module';
 import { CatalogueModule } from './catalogue/catalogue.module';
 import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
+import { PricingModule } from './pricing/pricing.module';
 import { ReferenceDataModule } from './reference-data/reference-data.module';
 import { SettingsModule } from './settings/settings.module';
 
@@ -18,6 +19,7 @@ import { SettingsModule } from './settings/settings.module';
     SettingsModule,
     ReferenceDataModule,
     CatalogueModule,
+    PricingModule,
   ],
   controllers: [HealthController],
 })

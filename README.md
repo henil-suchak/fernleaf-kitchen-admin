@@ -1,12 +1,12 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, and the Catalogue backend. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, the Catalogue backend, and the Pricing backend. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-No customer-company, employee, pricing, menu, order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+No customer-company, employee, menu, order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -79,6 +79,7 @@ npm run test:common --workspace=@fernleaf/api
 npm run test:settings --workspace=@fernleaf/api
 npm run test:reference-data --workspace=@fernleaf/api
 npm run test:catalogue --workspace=@fernleaf/api
+npm run test:pricing --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -204,7 +205,7 @@ The seed adds a small local/reviewer starter set: six allergens, four dietary ta
 
 ## Catalogue backend
 
-Catalogue defines reusable dishes and their selectable configuration. It deliberately does **not** define customer-facing prices: `Dish.costMinorUnits` is the internal, non-negative integer-minor-unit cost only. Pricing tiers, menus, orders, kitchen workflow, dispatch, billing, and a Catalogue frontend are not implemented.
+Catalogue defines reusable dishes and their selectable configuration. It deliberately does **not** define customer-facing prices: `Dish.costMinorUnits` and `Option.costMinorUnits` are internal, non-negative integer-minor-unit costs only. Pricing tiers are configured separately; menus, orders, kitchen workflow, dispatch, billing, and a Catalogue frontend are not implemented.
 
 The relational model is explicit so that options and groups can be reused without JSON arrays:
 
@@ -242,7 +243,29 @@ Names for Options and OptionGroups are trimmed, internal whitespace is collapsed
 
 Multi-table operations run in Prisma transactions: dish creation/update with allergen and dietary-tag rows, replacing a group’s options, and replacing a dish’s groups. Input duplicates are rejected before writes, and database constraints remain the final concurrency protection. Unique conflicts return `409 CONFLICT`; missing records return `404 NOT_FOUND`; assigning an inactive value returns the project’s `400 BUSINESS_RULE_VIOLATION` response.
 
-The idempotent local seed adds two dishes (`Paneer Power Bowl` and `Paneer Garden Salad`), seven options, three option groups, their ordered join rows, and reference-data links. Every matching seed upsert uses a no-op update: rerunning it creates only missing baseline records and does not overwrite matching administrator changes.
+The idempotent local seed adds two dishes (`Paneer Power Bowl` and `Paneer Garden Salad`), seven options with their internal costs/reference data, three option groups, their ordered join rows, and reference-data links. Every matching seed upsert uses a no-op update: rerunning it creates only missing baseline records and does not overwrite matching administrator changes.
+
+## Pricing backend
+
+Pricing is a backend-only module for assigning prices to catalogue Dishes and Options. It does not attach a tier to a company, resolve a Menu, snapshot an Order, calculate tax, or add a frontend screen.
+
+A tier has no persisted direct/derived mode. Its behavior is inferred from `derivationSource`:
+
+- No derivation source: prices are entered explicitly for Dishes and Options.
+- `BASE_TIER`: prices are calculated from an active, manually priced base tier.
+- `ITEM_COST`: prices are calculated from the item’s internal cost.
+
+An item-level explicit price takes precedence as a manual override. A default tier must be active and manually priced. The seed creates `Standard` as the default manually priced tier and `Premium` as a `BASE_TIER` tier at `11500` basis points (1.15×).
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/pricing/tiers` | `PRICING_READ` | List tiers and configuration. |
+| `GET` | `/api/pricing/tiers/:id` | `PRICING_READ` | Read one tier. |
+| `POST` | `/api/pricing/tiers` | `PRICING_WRITE` | Create a tier. |
+| `PATCH` | `/api/pricing/tiers/:id` | `PRICING_WRITE` | Update tier configuration, activity, or default status. |
+| `PUT` | `/api/pricing/tiers/:id/dish-prices` | `PRICING_WRITE` | Atomically upsert/delete explicit Dish prices. |
+| `PUT` | `/api/pricing/tiers/:id/option-prices` | `PRICING_WRITE` | Atomically upsert/delete explicit Option prices. |
+| `GET` | `/api/pricing/tiers/:id/matrix` | `PRICING_READ` | Read active Dish/Option resolved prices and availability. |
 
 ## Environment variables
 

@@ -41,6 +41,12 @@ type DishListRecord = Dish & {
   kitchenStation: CatalogueReferenceRecord | null;
 };
 
+type EmbeddedOptionRecord = CatalogueReferenceRecord & {
+  costMinorUnits: number;
+  optionAllergens: Array<{ allergen: CatalogueReferenceRecord }>;
+  optionDietaryTags: Array<{ dietaryTag: CatalogueReferenceRecord }>;
+};
+
 type DishDetailRecord = DishListRecord & {
   dishAllergens: Array<{ allergen: CatalogueReferenceRecord }>;
   dishDietaryTags: Array<{ dietaryTag: CatalogueReferenceRecord }>;
@@ -50,7 +56,7 @@ type DishDetailRecord = DishListRecord & {
     optionGroup: CatalogueReferenceRecord & {
       optionGroupOptions: Array<{
         sortOrder: number;
-        option: CatalogueReferenceRecord;
+        option: EmbeddedOptionRecord;
       }>;
     };
   }>;
@@ -319,7 +325,20 @@ export class DishService {
               include: {
                 optionGroupOptions: {
                   orderBy: { sortOrder: 'asc' },
-                  include: { option: true },
+                  include: {
+                    option: {
+                      include: {
+                        optionAllergens: {
+                          include: { allergen: true },
+                          orderBy: { allergen: { name: 'asc' } },
+                        },
+                        optionDietaryTags: {
+                          include: { dietaryTag: true },
+                          orderBy: { dietaryTag: { name: 'asc' } },
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -496,6 +515,13 @@ function toDishDetailResponse(dish: DishDetailRecord): DishDetailResponse {
       sortOrder: relationship.sortOrder,
       options: relationship.optionGroup.optionGroupOptions.map((optionRelationship) => ({
         ...toCatalogueReference(optionRelationship.option),
+        costMinorUnits: optionRelationship.option.costMinorUnits,
+        allergens: optionRelationship.option.optionAllergens.map(({ allergen }) =>
+          toCatalogueReference(allergen),
+        ),
+        dietaryTags: optionRelationship.option.optionDietaryTags.map(({ dietaryTag }) =>
+          toCatalogueReference(dietaryTag),
+        ),
         sortOrder: optionRelationship.sortOrder,
       })),
     })),

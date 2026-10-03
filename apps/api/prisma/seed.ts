@@ -2,6 +2,7 @@ import {
   DishTemperature,
   KitchenSettingsKey,
   PrismaClient,
+  PricingDerivationSource,
   Weekday,
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
@@ -77,13 +78,28 @@ const referenceData = {
 
 const catalogueData = {
   options: [
-    'Jeera Rice',
-    'Brown Rice',
-    'Basmati Rice',
-    'Mint Sauce',
-    'Spicy Mayo',
-    'Extra Paneer',
-    'Extra Cheese',
+    { name: 'Jeera Rice', costMinorUnits: 500, dietaryTags: ['Vegan', 'Halal'] },
+    { name: 'Brown Rice', costMinorUnits: 600, dietaryTags: ['Vegan', 'Halal'] },
+    { name: 'Basmati Rice', costMinorUnits: 550, dietaryTags: ['Vegan', 'Halal'] },
+    { name: 'Mint Sauce', costMinorUnits: 300, dietaryTags: ['Vegan', 'Halal'] },
+    {
+      name: 'Spicy Mayo',
+      costMinorUnits: 400,
+      allergens: ['Eggs'],
+      dietaryTags: ['Vegetarian'],
+    },
+    {
+      name: 'Extra Paneer',
+      costMinorUnits: 2500,
+      allergens: ['Milk'],
+      dietaryTags: ['Vegetarian', 'High Protein'],
+    },
+    {
+      name: 'Extra Cheese',
+      costMinorUnits: 1800,
+      allergens: ['Milk'],
+      dietaryTags: ['Vegetarian'],
+    },
   ],
   optionGroups: ['Choose Rice', 'Choose Sauce', 'Extra Topping'],
 } as const;
@@ -187,18 +203,34 @@ async function seed(): Promise<void> {
   }
 
   await seedCatalogue();
+  await seedPricing();
 }
 
 async function seedCatalogue(): Promise<void> {
   const optionIds = new Map<string, string>();
   for (const value of catalogueData.options) {
-    const normalized = normalizeCatalogueName(value);
+    const normalized = normalizeCatalogueName(value.name);
     const option = await prisma.option.upsert({
       where: { normalizedName: normalized.normalizedName },
       update: {},
-      create: normalized,
+      create: { ...normalized, costMinorUnits: value.costMinorUnits },
     });
     optionIds.set(normalized.normalizedName, option.id);
+  }
+
+  for (const value of catalogueData.options) {
+    const optionName = normalizeCatalogueName(value.name).normalizedName;
+    const optionId = requiredValue(optionIds.get(optionName), `option ${value.name}`);
+    for (const allergenName of value.allergens ?? []) {
+      await addOptionReference(optionId, (await getAllergen(allergenName)).id, 'allergen');
+    }
+    for (const dietaryTagName of value.dietaryTags ?? []) {
+      await addOptionReference(
+        optionId,
+        (await getDietaryTag(dietaryTagName)).id,
+        'dietaryTag',
+      );
+    }
   }
 
   const optionGroupIds = new Map<string, string>();
@@ -285,6 +317,46 @@ async function seedCatalogue(): Promise<void> {
   ]);
 }
 
+async function seedPricing(): Promise<void> {
+  const existingDefault = await prisma.pricingTier.findFirst({
+    where: { isDefault: true },
+    select: { id: true },
+  });
+  const standardName = normalizeCatalogueName('Standard');
+  const standard = await prisma.pricingTier.upsert({
+    where: { normalizedName: standardName.normalizedName },
+    update: {},
+    create: {
+      ...standardName,
+      isDefault: existingDefault === null,
+      isActive: true,
+    },
+  });
+
+  const premiumName = normalizeCatalogueName('Premium');
+  await prisma.pricingTier.upsert({
+    where: { normalizedName: premiumName.normalizedName },
+    update: {},
+    create: {
+      ...premiumName,
+      isActive: true,
+      derivationSource: PricingDerivationSource.BASE_TIER,
+      baseTierId: standard.id,
+      multiplierBps: 11_500,
+    },
+  });
+
+  await addStandardDishPrice(standard.id, 'PPB-001', 20_000);
+  await addStandardDishPrice(standard.id, 'PGS-001', 18_000);
+  await addStandardOptionPrice(standard.id, 'Jeera Rice', 0);
+  await addStandardOptionPrice(standard.id, 'Brown Rice', 1_000);
+  await addStandardOptionPrice(standard.id, 'Basmati Rice', 1_500);
+  await addStandardOptionPrice(standard.id, 'Mint Sauce', 0);
+  await addStandardOptionPrice(standard.id, 'Spicy Mayo', 500);
+  await addStandardOptionPrice(standard.id, 'Extra Paneer', 4_000);
+  await addStandardOptionPrice(standard.id, 'Extra Cheese', 3_000);
+}
+
 async function addOptionMembership(
   optionGroupIds: Map<string, string>,
   optionIds: Map<string, string>,
@@ -324,6 +396,27 @@ async function addDishReference(
     where: { dishId_dietaryTagId: { dishId, dietaryTagId: referenceId } },
     update: {},
     create: { dishId, dietaryTagId: referenceId },
+  });
+}
+
+async function addOptionReference(
+  optionId: string,
+  referenceId: string,
+  kind: 'allergen' | 'dietaryTag',
+): Promise<void> {
+  if (kind === 'allergen') {
+    await prisma.optionAllergen.upsert({
+      where: { optionId_allergenId: { optionId, allergenId: referenceId } },
+      update: {},
+      create: { optionId, allergenId: referenceId },
+    });
+    return;
+  }
+
+  await prisma.optionDietaryTag.upsert({
+    where: { optionId_dietaryTagId: { optionId, dietaryTagId: referenceId } },
+    update: {},
+    create: { optionId, dietaryTagId: referenceId },
   });
 }
 
@@ -376,6 +469,41 @@ async function getDietaryTag(name: string) {
   return requiredValue(dietaryTag, `dietary tag ${name}`);
 }
 
+async function addStandardDishPrice(
+  pricingTierId: string,
+  sku: string,
+  explicitPriceMinorUnits: number,
+): Promise<void> {
+  const dish = await prisma.dish.findUnique({
+    where: { sku: normalizeSku(sku) },
+    select: { id: true },
+  });
+  const dishId = requiredValue(dish, `dish ${sku}`).id;
+  await prisma.dishTierPrice.upsert({
+    where: { pricingTierId_dishId: { pricingTierId, dishId } },
+    update: {},
+    create: { pricingTierId, dishId, explicitPriceMinorUnits },
+  });
+}
+
+async function addStandardOptionPrice(
+  pricingTierId: string,
+  name: string,
+  explicitPriceMinorUnits: number,
+): Promise<void> {
+  const normalizedName = normalizeCatalogueName(name).normalizedName;
+  const option = await prisma.option.findUnique({
+    where: { normalizedName },
+    select: { id: true },
+  });
+  const optionId = requiredValue(option, `option ${name}`).id;
+  await prisma.optionTierPrice.upsert({
+    where: { pricingTierId_optionId: { pricingTierId, optionId } },
+    update: {},
+    create: { pricingTierId, optionId, explicitPriceMinorUnits },
+  });
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -390,7 +518,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 
 seed()
   .then(() => {
-    console.log('Identity, settings, reference data, and catalogue seed completed.');
+    console.log('Identity, settings, reference data, catalogue, and pricing seed completed.');
   })
   .catch((error: unknown) => {
     console.error('Application seed failed.', error);

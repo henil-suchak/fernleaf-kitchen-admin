@@ -20,6 +20,13 @@ type OptionReferenceRecord = {
   id: string;
   name: string;
   isActive: boolean;
+  costMinorUnits: number;
+  optionAllergens: Array<{
+    allergen: { id: string; name: string; isActive: boolean };
+  }>;
+  optionDietaryTags: Array<{
+    dietaryTag: { id: string; name: string; isActive: boolean };
+  }>;
 };
 
 type OptionGroupDetailRecord = OptionGroup & {
@@ -156,7 +163,20 @@ export class OptionGroupService {
       include: {
         optionGroupOptions: {
           orderBy: { sortOrder: 'asc' },
-          include: { option: true },
+          include: {
+            option: {
+              include: {
+                optionAllergens: {
+                  include: { allergen: true },
+                  orderBy: { allergen: { name: 'asc' } },
+                },
+                optionDietaryTags: {
+                  include: { dietaryTag: true },
+                  orderBy: { dietaryTag: { name: 'asc' } },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -225,6 +245,17 @@ function toOptionGroupDetailResponse(
       id: relationship.option.id,
       name: relationship.option.name,
       isActive: relationship.option.isActive,
+      costMinorUnits: relationship.option.costMinorUnits,
+      allergens: relationship.option.optionAllergens.map(({ allergen }) => ({
+        id: allergen.id,
+        name: allergen.name,
+        isActive: allergen.isActive,
+      })),
+      dietaryTags: relationship.option.optionDietaryTags.map(({ dietaryTag }) => ({
+        id: dietaryTag.id,
+        name: dietaryTag.name,
+        isActive: dietaryTag.isActive,
+      })),
       sortOrder: relationship.sortOrder,
     })),
   };

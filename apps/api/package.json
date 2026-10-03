@@ -15,7 +15,8 @@
     "test:common": "tsc -p tsconfig.test.json && node --test dist/test/test/common.infrastructure.spec.js",
     "test:settings": "tsc -p tsconfig.test.json && node --test dist/test/test/settings.integration.spec.js",
     "test:reference-data": "tsc -p tsconfig.test.json && node --test dist/test/test/reference-data.integration.spec.js",
-    "test:catalogue": "tsc -p tsconfig.test.json && node --test dist/test/test/catalogue.integration.spec.js"
+    "test:catalogue": "tsc -p tsconfig.test.json && node --test dist/test/test/catalogue.integration.spec.js",
+    "test:pricing": "tsc -p tsconfig.test.json && node --test dist/test/test/pricing.integration.spec.js"
   },
   "dependencies": {
     "@fernleaf/contracts": "*",
