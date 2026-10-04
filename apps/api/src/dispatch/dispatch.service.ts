@@ -12,7 +12,7 @@ import { DispatchDropManager } from './dispatch-drop-manager.service';
 type Transaction = Prisma.TransactionClient;
 
 const dropInclude = Prisma.validator<Prisma.DispatchDropInclude>()({
-  company: { select: { id: true, name: true } },
+  company: { select: { id: true, name: true, defaultDriver: { select: { id: true, email: true } } } },
   assignedDriver: { select: { id: true, email: true } },
   orders: { orderBy: { createdAt: 'asc' }, include: { employee: { select: { id: true, name: true, email: true } }, lines: { include: { combinations: { include: { selectedOptions: true } } } } } },
 });
@@ -29,6 +29,10 @@ export class DispatchService {
       return tx.dispatchDrop.findMany({ where: { deliveryDate }, orderBy: [{ deliveryTimeMinutes: 'asc' }, { createdAt: 'asc' }], include: dropInclude });
     });
     return drops.map((drop) => toDropResponse(drop, settings.timezone));
+  }
+
+  async listDrivers() {
+    return this.drops.listDeliveryCapableStaff();
   }
 
   async assignDriver(id: string, driverId: string) {

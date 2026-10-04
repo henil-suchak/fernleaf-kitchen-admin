@@ -17,13 +17,16 @@ import { PrismaModule } from './prisma/prisma.module';
 import { PricingModule } from './pricing/pricing.module';
 import { ReferenceDataModule } from './reference-data/reference-data.module';
 import { SettingsModule } from './settings/settings.module';
+import { StaffModule } from './staff/staff.module';
+import { validateEnvironment } from './config/environment.validation';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
     PrismaModule,
     AuthModule,
     AuthorizationModule,
+    StaffModule,
     SettingsModule,
     ReferenceDataModule,
     CatalogueModule,

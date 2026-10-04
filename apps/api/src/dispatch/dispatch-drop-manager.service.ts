@@ -6,7 +6,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { dispatchGroupingKey } from './dispatch-grouping.util';
 
 type Transaction = Prisma.TransactionClient;
-const driverPermissions = [PermissionCode.DELIVERY_OWN_READ, PermissionCode.DELIVERY_OWN_UPDATE] as const;
+export const DELIVERY_DRIVER_PERMISSIONS = [
+  PermissionCode.DELIVERY_OWN_READ,
+  PermissionCode.DELIVERY_OWN_UPDATE,
+] as const;
 
 @Injectable()
 export class DispatchDropManager {
@@ -58,10 +61,23 @@ export class DispatchDropManager {
   }
 
   async isDeliveryCapable(tx: Transaction | PrismaService, staffUserId: string): Promise<boolean> {
-    const user = await tx.staffUser.findUnique({ where: { id: staffUserId }, select: { isActive: true, role: { select: { rolePermissions: { where: { permission: { code: { in: [...driverPermissions] } } }, select: { permission: { select: { code: true } } } } } } } });
+    const user = await tx.staffUser.findUnique({ where: { id: staffUserId }, select: { isActive: true, role: { select: { rolePermissions: { where: { permission: { code: { in: [...DELIVERY_DRIVER_PERMISSIONS] } } }, select: { permission: { select: { code: true } } } } } } } });
     if (!user?.isActive) return false;
     const granted = new Set(user.role.rolePermissions.map(({ permission }) => permission.code));
-    return driverPermissions.every((permission) => granted.has(permission));
+    return DELIVERY_DRIVER_PERMISSIONS.every((permission) => granted.has(permission));
+  }
+
+  async listDeliveryCapableStaff() {
+    return this.prisma.staffUser.findMany({
+      where: {
+        isActive: true,
+        AND: DELIVERY_DRIVER_PERMISSIONS.map((permission) => ({
+          role: { rolePermissions: { some: { permission: { code: permission } } } },
+        })),
+      },
+      orderBy: [{ email: 'asc' }, { id: 'asc' }],
+      select: { id: true, email: true, role: { select: { code: true, name: true } } },
+    });
   }
 
   private async cleanupEmptyDrop(tx: Transaction, dropId: string): Promise<void> {

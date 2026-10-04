@@ -1,6 +1,6 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, Orders, Kitchen, Dispatch, Billing, and Dashboard backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, Orders, Kitchen, Dispatch, Billing, and Dashboard backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
@@ -35,6 +35,7 @@ Portions do not exist yet. The Next.js frontend provides an authenticated operat
    - `FRONTEND_URL` for the allowed browser origin.
    - a long, random `JWT_SECRET`.
    - `JWT_EXPIRES_IN`, such as `8h`.
+   - `SEED_STAFF_PASSWORD` only if you will run the intentional demo-data seed.
 
 4. Apply the migrations and seed local test data:
 
@@ -52,7 +53,8 @@ Portions do not exist yet. The Next.js frontend provides an authenticated operat
    - Web: http://localhost:3000
    - API: http://localhost:3001/api/health
 
-   Open http://localhost:3000 and sign in with `admin@test.com` / `Test@1234`.
+   Open http://localhost:3000 and sign in with `admin@test.com` and the
+   `SEED_STAFF_PASSWORD` you deliberately configured before seeding.
 
 ## Frontend workspace
 
@@ -68,9 +70,10 @@ the NestJS permission checks remain the security boundary.
 
 The admin workspace exposes real API-connected screens for dashboards,
 reference data, catalogue, pricing matrices, Companies, Employees, Menu preview,
-Orders, Kitchen, Dispatch, Billing, and Settings. Money is formatted consistently
-as INR from integer minor units. There is no staff/role management screen because
-the current backend has no endpoint to list or administer StaffUsers or Roles.
+Orders, Kitchen, Dispatch, Billing, Settings, and Staff. Money is formatted
+consistently as INR from integer minor units. Staff management reuses the existing
+StaffUser, Role, Permission, and RolePermission model; it does not create a second
+role system.
 
 ## Local PostgreSQL with Docker
 
@@ -110,6 +113,49 @@ npm run test:billing --workspace=@fernleaf/api
 npm run test:dashboard --workspace=@fernleaf/api
 ```
 
+## Production deployment
+
+Deploy the Next.js workspace to Vercel, the NestJS workspace to Render, and use
+a managed PostgreSQL database. The frontend and API URLs are configuration, not
+source-code constants.
+
+On Render, set `NODE_ENV=production`, configure the backend variables below,
+and use the repository root as the build context:
+
+```bash
+npm ci
+npm run db:generate --workspace=@fernleaf/api
+npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+npm run build --workspace=@fernleaf/api
+npm run start --workspace=@fernleaf/api
+```
+
+`prisma migrate deploy` is the production migration command. Do not use
+`prisma migrate dev` in production. Run the following separate, intentional
+operation only when the reviewer/demo seed data is wanted; the application
+never seeds automatically at startup:
+
+```bash
+npm run db:seed --workspace=@fernleaf/api
+```
+
+On Vercel, configure `NEXT_PUBLIC_API_URL` with the public Render API URL
+including `/api` before building. A suitable build command is:
+
+```bash
+npm ci
+npm run build --workspace=@fernleaf/web
+```
+
+In production the API sets the HttpOnly session cookie with `Secure` and
+`SameSite=None` so a Vercel frontend can call a Render API on another origin.
+`FRONTEND_URL` is an exact HTTPS CORS allowlist in production (one or more comma-separated origins),
+credentials are enabled, and authenticated mutation requests must carry an
+allowed `Origin`. This is the assignment's lightweight CSRF control. Browsers
+or privacy extensions that block third-party cookies can still prevent a
+cross-site Vercel/Render session from working; a same-site custom-domain setup
+is the more reliable production topology.
+
 ## Backend authentication
 
 Foundation Step 2B adds the staff authentication API. The frontend now uses it for its login screen, session bootstrap, role-aware navigation, and logout flow; authorization remains enforced by the API.
@@ -132,10 +178,25 @@ The API verifies the token and then loads the current staff user from PostgreSQL
 Login accepts:
 
 ```json
-{ "email": "admin@test.com", "password": "Test@1234" }
+{ "email": "admin@test.com", "password": "your-seed-staff-password" }
 ```
 
-The idempotent seed also creates `kitchen@test.com`, `dispatch@test.com`, and `driver@test.com`, each with password `Test@1234`. These are required local/reviewer test accounts, not production credentials.
+The idempotent seed also creates `kitchen@test.com`, `dispatch@test.com`, and `driver@test.com`. All seeded reviewer accounts receive the value supplied through `SEED_STAFF_PASSWORD`; it is never stored in the repository. These accounts are intentional demo data, so use a unique deployment secret and rotate or deactivate them outside reviewer deployments.
+
+## Staff management
+
+Administrators can list Staff Users and roles, create Staff Users with a bcrypt-hashed
+password, change a role, and activate or deactivate an account. Password hashes are
+never returned. Every endpoint requires `STAFF_MANAGE`; the frontend hides the Staff
+navigation item for other roles, but the API is the enforcement boundary. The final
+active Administrator cannot be deactivated or moved to a non-Admin role.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/staff` | `STAFF_MANAGE` | List safe Staff User summaries. |
+| `GET` | `/api/staff/roles` | `STAFF_MANAGE` | List assignable existing roles. |
+| `POST` | `/api/staff` | `STAFF_MANAGE` | Create a Staff User with a bcrypt-hashed password. |
+| `PATCH` | `/api/staff/:id` | `STAFF_MANAGE` | Change role and/or active status. |
 
 ## Backend permission authorization
 
@@ -371,6 +432,14 @@ Orders owns the immutable commercial record of what an Employee ordered for the 
 
 An Order stores both `employeeId` and `companyId`; this is intentional historical denormalization because an Employee may later move Company. It snapshots the effective PricingTier identity/name, resolved selling prices, Dish/Option names, delivery address, delivery defaults, kitchen routing, and cutoff instant. It never recalculates historical money or names from current Catalogue, Pricing, Company, or Kitchen Settings data.
 
+In the frontend Order editor, selecting an Employee loads that Employee's Company and
+prefills the Company's active delivery address, default delivery time, and packaging.
+The editor only enables each delivery-logistics field when the existing Employee
+capability permits it; the API remains the authoritative validation and persists the
+resulting values as the Order's historical snapshot. The screen also shows the derived
+kitchen-ready and dispatch-ready planning times without changing the server-side
+cutoff or planning rules.
+
 Each Order line represents one Dish. Its combinations represent distinct selected OptionGroup/Option pairs, and their quantities must sum to the line quantity. `selectionKey` uses sorted `optionGroupId:optionId` pairs, so duplicate preparation configurations cannot be persisted. Historical selections reference OptionGroup and Option individually, but deliberately do not reference mutable `OptionGroupOption` membership rows.
 
 | Method | Endpoint | Permission | Purpose |
@@ -438,11 +507,17 @@ WAITING_KITCHEN -> DISPATCH_READY -> OUT_FOR_DELIVERY -> DELIVERED
 
 Dispatch readiness requires at least one member, every member still `CONFIRMED`, and every prep unit completed. Departure additionally requires an assigned, active StaffUser who currently has both delivery-own permissions. A Company’s default driver is assigned only when a Drop is first created and only if that same permission-based validity check succeeds; no role-code check is used.
 
+Dispatch can also list active Staff Users who hold both delivery-own permissions and
+select any of them for a Drop. The Company default driver is shown as the initial
+selection where present; the existing assignment endpoint revalidates capability
+server-side before persisting the choice.
+
 The driver’s own endpoints always require delivery-own permissions. Delivery additionally confirms that the authenticated StaffUser is the Drop’s assigned driver. In the same serializable transaction, delivery records optional note/photo data, calculates `wasOnTime` from the configured Kitchen timezone and exact delivery time, transitions every member Order from `CONFIRMED` to `DELIVERED`, and creates one `OrderStatusEvent` per successful Order transition.
 
 | Method | Endpoint | Permission | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/dispatch/board?deliveryDate=YYYY-MM-DD` | `DISPATCH_READ` | List grouped Drops for a delivery date. |
+| `GET` | `/api/dispatch/drivers` | `DISPATCH_READ` | List active Staff Users with delivery capability. |
 | `PATCH` | `/api/dispatch/drops/:id/driver` | `DISPATCH_UPDATE` | Assign an active delivery-capable driver before departure. |
 | `POST` | `/api/dispatch/drops/:id/dispatch-ready` | `DISPATCH_UPDATE` | Advance a kitchen-ready Drop once. |
 | `POST` | `/api/dispatch/drops/:id/out-for-delivery` | `DISPATCH_UPDATE` | Mark a dispatch-ready, assigned Drop as departed. |
@@ -489,8 +564,10 @@ Dashboards are read-only derived views. `DashboardModule` adds no database model
 | File | Variable | Purpose |
 | --- | --- | --- |
 | `apps/api/.env` | `DATABASE_URL` | PostgreSQL connection string for Prisma. |
-| `apps/api/.env` | `FRONTEND_URL` | Allowed frontend origin for API CORS. |
+| `apps/api/.env` | `NODE_ENV` | `development`, `test`, or `production`; production enables cross-site secure cookies. |
+| `apps/api/.env` | `FRONTEND_URL` | One or more exact comma-separated frontend origins allowed by CORS. |
 | `apps/api/.env` | `PORT` | API listening port. |
-| `apps/api/.env` | `JWT_SECRET` | Backend-only signing secret for authentication JWTs. Never expose it to the frontend. |
+| `apps/api/.env` | `JWT_SECRET` | Backend-only signing secret for authentication JWTs. It must be a non-placeholder value of at least 32 characters in production; never expose it to the frontend. |
 | `apps/api/.env` | `JWT_EXPIRES_IN` | JWT and cookie duration, such as `8h`. |
+| `apps/api/.env` | `SEED_STAFF_PASSWORD` | Required only by the intentional seed command; sets the seeded reviewer-account password and must never be committed. |
 | `apps/web/.env.local` | `NEXT_PUBLIC_API_URL` | Public base URL for the NestJS API, including `/api`. |

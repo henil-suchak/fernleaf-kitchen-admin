@@ -16,6 +16,8 @@ export class DispatchController {
   constructor(private readonly dispatchService: DispatchService) {}
   @Get('board') @RequirePermissions(PermissionCode.DISPATCH_READ)
   board(@Query() query: DispatchBoardQueryDto) { return this.dispatchService.board(query.deliveryDate); }
+  @Get('drivers') @RequirePermissions(PermissionCode.DISPATCH_READ)
+  drivers() { return this.dispatchService.listDrivers(); }
   @Patch('drops/:id/driver') @RequirePermissions(PermissionCode.DISPATCH_UPDATE)
   assign(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Body() input: AssignDriverDto) { return this.dispatchService.assignDriver(id, input.driverId); }
   @Post('drops/:id/dispatch-ready') @RequirePermissions(PermissionCode.DISPATCH_UPDATE)

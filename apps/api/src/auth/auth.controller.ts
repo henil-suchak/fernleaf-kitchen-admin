@@ -58,13 +58,15 @@ export class AuthController {
   private cookieOptions(): {
     httpOnly: true;
     secure: boolean;
-    sameSite: 'lax';
+    sameSite: 'lax' | 'none';
     path: '/';
   } {
+    const isProduction = this.config.getOrThrow<string>('NODE_ENV') === 'production';
+
     return {
       httpOnly: true,
-      secure: this.config.get<string>('NODE_ENV') === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       path: '/',
     };
   }

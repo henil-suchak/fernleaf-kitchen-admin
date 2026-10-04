@@ -154,7 +154,10 @@ async function seed(): Promise<void> {
     }
   }
 
-  const passwordHash = await bcrypt.hash('Test@1234', 12);
+  const passwordHash = await bcrypt.hash(
+    requiredEnvironment('SEED_STAFF_PASSWORD'),
+    12,
+  );
 
   for (const { email, roleCode } of staffAccounts) {
     const roleId = requiredValue(rolesByCode.get(roleCode), `role ${roleCode}`);
@@ -1016,6 +1019,14 @@ function requiredValue<T>(value: T | undefined, label: string): T {
     throw new Error(`Missing seeded ${label}.`);
   }
 
+  return value;
+}
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value || value.startsWith('replace-with-')) {
+    throw new Error(`${name} must be configured before running the seed.`);
+  }
   return value;
 }
 

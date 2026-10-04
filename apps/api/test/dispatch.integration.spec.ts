@@ -36,17 +36,25 @@ describe('dispatch module', () => {
     app = moduleRef.createNestApplication(); app.setGlobalPrefix('api'); app.use(cookieParser());
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, exceptionFactory: createValidationException })); app.useGlobalFilters(new HttpExceptionFilter()); await app.init();
     prisma = moduleRef.get(PrismaService); jwtService = moduleRef.get(JwtService);
-    const [ready, waiting, driver] = await Promise.all([
-      prisma.order.findUniqueOrThrow({ where: { id: readyOrderId }, select: { dispatchDropId: true } }),
-      prisma.order.findUniqueOrThrow({ where: { id: startedOrderId }, select: { dispatchDropId: true } }),
-      prisma.staffUser.findUniqueOrThrow({ where: { email: 'driver@test.com' } }),
-    ]);
-    readyDropId = ready.dispatchDropId!; waitingDropId = waiting.dispatchDropId!; driverId = driver.id;
+    const driver = await prisma.staffUser.findUniqueOrThrow({ where: { email: 'driver@test.com' } });
+    driverId = driver.id;
     readyCombinationId = (await prisma.orderCombination.findFirstOrThrow({ where: { orderLine: { orderId: readyOrderId } } })).id;
     startedCombinationId = (await prisma.orderCombination.findFirstOrThrow({ where: { orderLine: { orderId: startedOrderId } } })).id;
   });
   beforeEach(async () => {
-    await prisma.order.updateMany({ where: { id: { in: [readyOrderId, startedOrderId] } }, data: { status: 'CONFIRMED' } });
+    await prisma.order.updateMany({ where: { id: { in: [readyOrderId, startedOrderId, pendingOrderId] } }, data: { status: 'CONFIRMED', dispatchDropId: null } });
+    await Promise.all([
+      prisma.order.update({ where: { id: readyOrderId }, data: { deliveryTimeMinutes: 13 * 60 } }),
+      prisma.order.update({ where: { id: startedOrderId }, data: { deliveryTimeMinutes: 14 * 60 } }),
+      prisma.order.update({ where: { id: pendingOrderId }, data: { deliveryTimeMinutes: 15 * 60 } }),
+      prisma.dispatchDrop.updateMany({ where: { id: { in: ['00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-0000000000a3'] } }, data: { status: 'WAITING_KITCHEN', assignedDriverId: driverId, dispatchReadyAt: null, outForDeliveryAt: null, deliveredAt: null, wasOnTime: null } }),
+    ]);
+    await request(app.getHttpServer()).get(`/api/dispatch/board?deliveryDate=${today()}`).set('Cookie', await cookie()).expect(200);
+    const [ready, waiting] = await Promise.all([
+      prisma.order.findUniqueOrThrow({ where: { id: readyOrderId }, select: { dispatchDropId: true } }),
+      prisma.order.findUniqueOrThrow({ where: { id: startedOrderId }, select: { dispatchDropId: true } }),
+    ]);
+    readyDropId = ready.dispatchDropId!; waitingDropId = waiting.dispatchDropId!;
     await prisma.orderCombination.update({ where: { id: readyCombinationId }, data: { kitchenStartedAt: new Date(), kitchenCompletedAt: new Date() } });
     await prisma.orderCombination.update({ where: { id: startedCombinationId }, data: { kitchenStartedAt: new Date(), kitchenCompletedAt: null } });
     await prisma.dispatchDrop.update({ where: { id: readyDropId }, data: { assignedDriverId: driverId, status: 'DISPATCH_READY', dispatchReadyAt: new Date(), outForDeliveryAt: null, deliveredAt: null, wasOnTime: null } });
@@ -70,6 +78,16 @@ describe('dispatch module', () => {
     assert.ok(readyDrop); assert.equal(readyDrop.assignedDriver.id, driverId);
     const driver = await request(app.getHttpServer()).get('/api/driver/drops/today').set('Cookie', await cookie('driver@test.com')).expect(200);
     assert.ok(driver.body.some((drop: { id: string }) => drop.id === readyDropId));
+  });
+
+  it('lists delivery-capable Staff for Dispatch and assigns an alternate valid Driver', async () => {
+    const drivers = await request(app.getHttpServer()).get('/api/dispatch/drivers').set('Cookie', await cookie()).expect(200);
+    assert.ok(drivers.body.some((driver: { id: string }) => driver.id === driverId));
+    await request(app.getHttpServer()).get('/api/dispatch/drivers').set('Cookie', await cookie('kitchen@test.com')).expect(403);
+    const alternate = drivers.body.find((driver: { id: string }) => driver.id !== driverId);
+    assert.ok(alternate);
+    const assigned = await request(app.getHttpServer()).patch(`/api/dispatch/drops/${readyDropId}/driver`).set('Cookie', await cookie()).send({ driverId: alternate.id }).expect(200);
+    assert.equal(assigned.body.assignedDriver.id, alternate.id);
   });
 
   it('rejects an inactive driver assignment', async () => {
