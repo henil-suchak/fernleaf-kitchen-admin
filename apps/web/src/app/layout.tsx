@@ -5,7 +5,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Fernleaf Kitchen Operations',
-  description: 'Operations admin panel foundation',
+  description: 'Kitchen operations administration panel',
 };
 
 export default function RootLayout({

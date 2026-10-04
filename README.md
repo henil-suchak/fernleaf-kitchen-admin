@@ -6,7 +6,7 @@ This repository currently contains the platform foundation, staff identity model
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-Portions and frontend business screens do not exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+Portions do not exist yet. The Next.js frontend provides an authenticated operations workspace for the implemented backend modules. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -52,6 +52,26 @@ Portions and frontend business screens do not exist yet. The API health endpoint
    - Web: http://localhost:3000
    - API: http://localhost:3001/api/health
 
+   Open http://localhost:3000 and sign in with `admin@test.com` / `Test@1234`.
+
+## Frontend workspace
+
+The frontend uses the App Router and one small browser API client. It sends
+requests to `NEXT_PUBLIC_API_URL` with `credentials: 'include'`; the API's
+HttpOnly session cookie is never stored in browser storage. A `401` clears the
+local session view and returns the user to `/login`.
+
+The role supplied by `/api/auth/me` selects a useful workspace: Admin opens the
+operations dashboard, Kitchen opens Kitchen, Dispatch opens Dispatch, and Driver
+opens the compact `/driver` delivery view. Navigation is a convenience layer;
+the NestJS permission checks remain the security boundary.
+
+The admin workspace exposes real API-connected screens for dashboards,
+reference data, catalogue, pricing matrices, Companies, Employees, Menu preview,
+Orders, Kitchen, Dispatch, Billing, and Settings. Money is formatted consistently
+as INR from integer minor units. There is no staff/role management screen because
+the current backend has no endpoint to list or administer StaffUsers or Roles.
+
 ## Local PostgreSQL with Docker
 
 If Docker is available, start the supplied local database:
@@ -92,7 +112,7 @@ npm run test:dashboard --workspace=@fernleaf/api
 
 ## Backend authentication
 
-Foundation Step 2B adds backend-only staff authentication. There is deliberately no frontend login page, frontend session state, or frontend route protection yet.
+Foundation Step 2B adds the staff authentication API. The frontend now uses it for its login screen, session bootstrap, role-aware navigation, and logout flow; authorization remains enforced by the API.
 
 Authentication uses an HttpOnly cookie containing a short JWT payload:
 
@@ -136,7 +156,7 @@ Permission codes are defined once in `apps/api/src/authorization/permission-code
 
 ## Common backend infrastructure
 
-Foundation Step 3 adds small backend-only technical infrastructure for future feature modules. It does not add database models, business rules, or frontend features.
+Foundation Step 3 adds small technical infrastructure used by the feature modules. It does not add database models or business rules itself; the frontend consumes the later feature APIs through the shared browser client.
 
 ### Validation and errors
 
@@ -171,7 +191,7 @@ No generic lock manager, mutex, Redis lock, or concurrency framework exists. A f
 
 ## Settings backend
 
-The first business module stores the single kitchen-wide configuration and kitchen closure dates. It does not calculate actual order cutoff dates and does not provide a frontend Settings screen.
+The first business module stores the single kitchen-wide configuration and kitchen closure dates. It does not calculate actual order cutoff dates. The frontend Settings screen manages the supported kitchen settings and closure dates.
 
 The idempotent seed creates the `GLOBAL` kitchen-settings record only when it does not already exist. Its defaults are `Asia/Kolkata`, Monday–Friday, a two-working-day cutoff count, and a `16:00` cutoff time. Re-running the seed deliberately preserves administrator changes. No fictional holidays are seeded.
 
@@ -213,7 +233,7 @@ The seed adds a small local/reviewer starter set: six allergens, four dietary ta
 
 ## Catalogue backend
 
-Catalogue defines reusable dishes and their selectable configuration. It deliberately does **not** define customer-facing prices: `Dish.costMinorUnits` and `Option.costMinorUnits` are internal, non-negative integer-minor-unit costs only. Pricing tiers are configured separately; menus, orders, kitchen workflow, dispatch, billing, and a Catalogue frontend are not implemented.
+Catalogue defines reusable dishes and their selectable configuration. It deliberately does **not** define customer-facing prices: `Dish.costMinorUnits` and `Option.costMinorUnits` are internal, non-negative integer-minor-unit costs only. Pricing tiers are configured separately; Menu, Orders, Kitchen, Dispatch, Billing, and their frontend workflows use these records without redefining the catalogue model.
 
 The relational model is explicit so that options and groups can be reused without JSON arrays:
 
@@ -255,7 +275,7 @@ The idempotent local seed adds two dishes (`Paneer Power Bowl` and `Paneer Garde
 
 ## Pricing backend
 
-Pricing is a backend-only module for assigning prices to catalogue Dishes and Options. Companies may reference an active tier, but the module does not calculate tax or add a frontend screen.
+Pricing assigns prices to catalogue Dishes and Options. Companies may reference an active tier, but the module does not calculate tax. The frontend provides pricing-tier and matrix screens for the implemented API operations.
 
 A tier has no persisted direct/derived mode. Its behavior is inferred from `derivationSource`:
 
@@ -322,7 +342,7 @@ New Employees, moves, reactivations, and new preference assignments require acti
 
 Company ownership is a guarded compatibility rule: an owner must be active, belong to that same active Company, and may not own another Company. An existing owner must be replaced rather than cleared. The current owner cannot be moved or deactivated until reassigned. Simple Employee create/update work uses normal Prisma transactions; the ownership-sensitive move, deactivation, and owner-assignment paths use serializable transactions because they can race with ownership changes.
 
-The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import, Billing, dashboards, portions, and frontend business screens are intentionally not implemented.
+The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import and portions are intentionally not implemented.
 
 ## Menu backend
 
