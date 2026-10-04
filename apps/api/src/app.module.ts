@@ -7,6 +7,7 @@ import { CatalogueModule } from './catalogue/catalogue.module';
 import { CompaniesModule } from './companies/companies.module';
 import { EmployeesModule } from './employees/employees.module';
 import { HealthController } from './health/health.controller';
+import { MenuModule } from './menu/menu.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PricingModule } from './pricing/pricing.module';
 import { ReferenceDataModule } from './reference-data/reference-data.module';
@@ -23,6 +24,7 @@ import { SettingsModule } from './settings/settings.module';
     CatalogueModule,
     CompaniesModule,
     EmployeesModule,
+    MenuModule,
     PricingModule,
   ],
   controllers: [HealthController],

@@ -117,23 +117,24 @@ enum DishTemperature {
 }
 
 model Dish {
-  id               String            @id @default(uuid()) @db.Uuid
-  name             String            @db.VarChar(120)
-  description      String?           @db.VarChar(1000)
-  imageUrl         String?           @db.VarChar(2048)
-  sku              String            @unique @db.VarChar(64)
-  temperature      DishTemperature
-  costMinorUnits   Int
-  minimumQuantity  Int
-  isActive         Boolean           @default(true)
-  kitchenStationId String?           @db.Uuid
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  kitchenStation   KitchenStation?   @relation(fields: [kitchenStationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  dishAllergens    DishAllergen[]
-  dishDietaryTags  DishDietaryTag[]
-  dishOptionGroups DishOptionGroup[]
-  dishPrices       DishTierPrice[]
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String             @db.VarChar(120)
+  description       String?            @db.VarChar(1000)
+  imageUrl          String?            @db.VarChar(2048)
+  sku               String             @unique @db.VarChar(64)
+  temperature       DishTemperature
+  costMinorUnits    Int
+  minimumQuantity   Int
+  isActive          Boolean            @default(true)
+  kitchenStationId  String?            @db.Uuid
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  kitchenStation    KitchenStation?    @relation(fields: [kitchenStationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  dishAllergens     DishAllergen[]
+  dishDietaryTags   DishDietaryTag[]
+  dishOptionGroups  DishOptionGroup[]
+  dishPrices        DishTierPrice[]
+  menuCategoryItems MenuCategoryItem[]
 }
 
 model Option {
@@ -264,30 +265,32 @@ model OptionTierPrice {
 }
 
 model Company {
-  id                         String               @id @default(uuid()) @db.Uuid
-  name                       String               @db.VarChar(160)
-  normalizedName             String               @db.VarChar(160)
-  billingContactName         String               @db.VarChar(120)
-  billingContactEmail        String               @db.VarChar(320)
-  billingContactPhone        String?              @db.VarChar(32)
-  workingDays                Weekday[]            @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY])
-  defaultDeliveryTimeMinutes Int                  @default(750)
-  deliveryMinutesBefore      Int                  @default(60)
-  defaultPackaging           String               @db.VarChar(40)
-  driverInstructions         String?              @db.VarChar(1000)
-  pricingTierId              String?              @db.Uuid
-  defaultDriverId            String?              @db.Uuid
-  ownerEmployeeId            String?              @unique @db.Uuid
-  isActive                   Boolean              @default(true)
-  createdAt                  DateTime             @default(now())
-  updatedAt                  DateTime             @updatedAt
-  pricingTier                PricingTier?         @relation("CompanyPricingTier", fields: [pricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  defaultDriver              StaffUser?           @relation("CompanyDefaultDriver", fields: [defaultDriverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  ownerEmployee              Employee?            @relation("CompanyOwner", fields: [ownerEmployeeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  employees                  Employee[]           @relation("CompanyEmployees")
+  id                         String                      @id @default(uuid()) @db.Uuid
+  name                       String                      @db.VarChar(160)
+  normalizedName             String                      @db.VarChar(160)
+  billingContactName         String                      @db.VarChar(120)
+  billingContactEmail        String                      @db.VarChar(320)
+  billingContactPhone        String?                     @db.VarChar(32)
+  workingDays                Weekday[]                   @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY])
+  defaultDeliveryTimeMinutes Int                         @default(750)
+  deliveryMinutesBefore      Int                         @default(60)
+  defaultPackaging           String                      @db.VarChar(40)
+  driverInstructions         String?                     @db.VarChar(1000)
+  pricingTierId              String?                     @db.Uuid
+  defaultDriverId            String?                     @db.Uuid
+  ownerEmployeeId            String?                     @unique @db.Uuid
+  isActive                   Boolean                     @default(true)
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  pricingTier                PricingTier?                @relation("CompanyPricingTier", fields: [pricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  defaultDriver              StaffUser?                  @relation("CompanyDefaultDriver", fields: [defaultDriverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  ownerEmployee              Employee?                   @relation("CompanyOwner", fields: [ownerEmployeeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  employees                  Employee[]                  @relation("CompanyEmployees")
   emailDomains               CompanyEmailDomain[]
   addresses                  CompanyAddress[]
   holidays                   CompanyHoliday[]
+  hiddenMenuCategories       CompanyHiddenMenuCategory[]
+  hiddenMenuItems            CompanyHiddenMenuItem[]
 }
 
 model CompanyEmailDomain {
@@ -361,4 +364,50 @@ model EmployeeDietaryTag {
   dietaryTag   DietaryTag @relation(fields: [dietaryTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([employeeId, dietaryTagId])
+}
+
+model MenuCategory {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  name               String                      @db.VarChar(80)
+  normalizedName     String                      @unique @db.VarChar(80)
+  sortOrder          Int
+  isSecret           Boolean                     @default(false)
+  isActive           Boolean                     @default(true)
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  items              MenuCategoryItem[]
+  hiddenForCompanies CompanyHiddenMenuCategory[]
+}
+
+model MenuCategoryItem {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  categoryId         String                  @db.Uuid
+  dishId             String                  @db.Uuid
+  sortOrder          Int
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  category           MenuCategory            @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  dish               Dish                    @relation(fields: [dishId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  hiddenForCompanies CompanyHiddenMenuItem[]
+
+  @@unique([categoryId, dishId])
+}
+
+model CompanyHiddenMenuCategory {
+  companyId  String       @db.Uuid
+  categoryId String       @db.Uuid
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  category   MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([companyId, categoryId])
+}
+
+model CompanyHiddenMenuItem {
+  companyId          String           @db.Uuid
+  menuCategoryItemId String           @db.Uuid
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  menuCategoryItem   MenuCategoryItem @relation(fields: [menuCategoryItemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([companyId, menuCategoryItemId])
 }

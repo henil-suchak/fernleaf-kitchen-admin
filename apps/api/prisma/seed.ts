@@ -208,6 +208,7 @@ async function seed(): Promise<void> {
   await seedPricing();
   await seedCompanies();
   await seedEmployees();
+  await seedMenu();
 }
 
 async function seedCatalogue(): Promise<void> {
@@ -476,6 +477,44 @@ async function seedEmployees(): Promise<void> {
       data: { ownerEmployeeId: northstarOwner.id },
     }),
   ]);
+}
+
+async function seedMenu(): Promise<void> {
+  const [paneerPowerBowl, paneerGardenSalad, acme] = await Promise.all([
+    prisma.dish.findUniqueOrThrow({ where: { sku: normalizeSku('PPB-001') } }),
+    prisma.dish.findUniqueOrThrow({ where: { sku: normalizeSku('PGS-001') } }),
+    findSeedCompany('acme.com'),
+  ]);
+  const bowls = await seedMenuCategory('Bowls', 1, false);
+  const salads = await seedMenuCategory('Salads', 2, false);
+  const chefSpecials = await seedMenuCategory('Chef Specials', 3, true);
+  const [, saladItem] = await Promise.all([
+    seedMenuItem(bowls.id, paneerPowerBowl.id, 1),
+    seedMenuItem(salads.id, paneerGardenSalad.id, 1),
+  ]);
+  await seedMenuItem(chefSpecials.id, paneerPowerBowl.id, 1);
+  await prisma.companyHiddenMenuItem.upsert({
+    where: { companyId_menuCategoryItemId: { companyId: acme.id, menuCategoryItemId: saladItem.id } },
+    update: {},
+    create: { companyId: acme.id, menuCategoryItemId: saladItem.id },
+  });
+}
+
+async function seedMenuCategory(name: string, sortOrder: number, isSecret: boolean) {
+  const normalized = normalizeCatalogueName(name);
+  return prisma.menuCategory.upsert({
+    where: { normalizedName: normalized.normalizedName },
+    update: {},
+    create: { ...normalized, sortOrder, isSecret },
+  });
+}
+
+async function seedMenuItem(categoryId: string, dishId: string, sortOrder: number) {
+  return prisma.menuCategoryItem.upsert({
+    where: { categoryId_dishId: { categoryId, dishId } },
+    update: {},
+    create: { categoryId, dishId, sortOrder },
+  });
 }
 
 interface EmployeeSeed {
@@ -771,7 +810,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 seed()
   .then(() => {
     console.log(
-      'Identity, settings, reference data, catalogue, pricing, Companies, and Employees seed completed.',
+      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, and Menu seed completed.',
     );
   })
   .catch((error: unknown) => {

@@ -1,6 +1,6 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, and Employees backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, and Menu backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
@@ -82,6 +82,7 @@ npm run test:catalogue --workspace=@fernleaf/api
 npm run test:pricing --workspace=@fernleaf/api
 npm run test:companies --workspace=@fernleaf/api
 npm run test:employees --workspace=@fernleaf/api
+npm run test:menu --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -316,7 +317,28 @@ New Employees, moves, reactivations, and new preference assignments require acti
 
 Company ownership is a guarded compatibility rule: an owner must be active, belong to that same active Company, and may not own another Company. An existing owner must be replaced rather than cleared. The current owner cannot be moved or deactivated until reassigned. Simple Employee create/update work uses normal Prisma transactions; the ownership-sensitive move, deactivation, and owner-assignment paths use serializable transactions because they can race with ownership changes.
 
-The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import, Menu, Orders, Kitchen, Dispatch, Billing, and frontend work are intentionally not implemented.
+The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import, Orders, Kitchen, Dispatch, Billing, and frontend work are intentionally not implemented.
+
+## Menu backend
+
+Menu controls which Catalogue Dishes are exposed to an Employee; it does not copy Dish data or persist selling prices. Catalogue owns what exists, Pricing owns what it costs, Menu owns category placement and visibility, and future Orders will own what was purchased.
+
+Menu Categories are globally ordered, may be active/inactive, and may be secret. A secret category is omitted from the normal preview but can be directly previewed when it is active, not hidden for the Employee's Company, and still contains orderable items. A Dish may appear in multiple Categories through `MenuCategoryItem`; Company item hiding applies to that placement rather than globally hiding the Dish.
+
+Employee allergen and dietary-preference records are informational only and do not automatically filter the Menu. There is no date-based, seasonal, or scheduled Menu behavior.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/menu/categories` | `MENU_READ` | List Menu configuration. |
+| `GET` | `/api/menu/categories/:id` | `MENU_READ` | Read one Category and placements. |
+| `POST` / `PATCH` | `/api/menu/categories` | `MENU_WRITE` | Create or update Category configuration. |
+| `POST` | `/api/menu/categories/:id/items` | `MENU_WRITE` | Place an existing Dish in a Category. |
+| `PATCH` | `/api/menu/categories/:categoryId/items/:itemId` | `MENU_WRITE` | Update placement order or activity. |
+| `PUT` | `/api/companies/:id/menu-hiding` | `MENU_WRITE` | Atomically replace Company category/item hiding. |
+| `GET` | `/api/menu/preview/employees/:employeeId` | `MENU_READ` | Preview the normal Employee Menu. |
+| `GET` | `/api/menu/preview/employees/:employeeId/categories/:categoryId` | `MENU_READ` | Preview one Category, including a secret Category. |
+
+Preview dynamically uses the Employee's Company tier or the active default tier through PricingResolver. Unpriced Dishes and Options are hidden; a Dish is hidden when a required OptionGroup has no active, priced Option. Future Orders will validate a Dish through Menu availability but will not persist Menu placement identity or let later Menu changes rewrite historical orders.
 
 ## Environment variables
 

@@ -8,6 +8,22 @@ import type { PriceResolution } from './pricing.types';
 export class PricingResolver {
   constructor(private readonly prisma: PrismaService) {}
 
+  async resolveEffectivePricingTier(companyPricingTierId: string | null) {
+    const tier = companyPricingTierId
+      ? await this.prisma.pricingTier.findUnique({
+          where: { id: companyPricingTierId },
+          select: { id: true, name: true, isActive: true },
+        })
+      : await this.prisma.pricingTier.findFirst({
+          where: { isDefault: true, isActive: true },
+          select: { id: true, name: true, isActive: true },
+        });
+    if (!tier || !tier.isActive) {
+      throw new NotFoundException('Active effective pricing tier not found.');
+    }
+    return { id: tier.id, name: tier.name };
+  }
+
   async resolveDishPrice(
     dishId: string,
     pricingTierId: string,
