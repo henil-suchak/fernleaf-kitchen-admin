@@ -28,6 +28,7 @@ model StaffUser {
   role                   Role               @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   defaultDriverCompanies Company[]          @relation("CompanyDefaultDriver")
   orderStatusEvents      OrderStatusEvent[] @relation("OrderStatusEventActor")
+  assignedDispatchDrops  DispatchDrop[]     @relation("DispatchDropDriver")
 }
 
 model Permission {
@@ -298,6 +299,7 @@ model Company {
   hiddenMenuCategories       CompanyHiddenMenuCategory[]
   hiddenMenuItems            CompanyHiddenMenuItem[]
   orders                     Order[]                     @relation("CompanyOrders")
+  dispatchDrops              DispatchDrop[]
 }
 
 model CompanyEmailDomain {
@@ -451,6 +453,7 @@ model Order {
   deliveryMinutesBeforeSnapshot Int
   packaging                     String             @db.VarChar(40)
   driverInstructionsSnapshot    String?            @db.VarChar(1000)
+  dispatchDropId                String?            @db.Uuid
   totalMinorUnits               Int
   createdAt                     DateTime           @default(now())
   updatedAt                     DateTime           @updatedAt
@@ -458,6 +461,7 @@ model Order {
   company                       Company            @relation("CompanyOrders", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   effectivePricingTier          PricingTier        @relation("OrderEffectivePricingTier", fields: [effectivePricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sourceCompanyAddress          CompanyAddress     @relation("CompanyAddressOrders", fields: [sourceCompanyAddressId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  dispatchDrop                  DispatchDrop?      @relation(fields: [dispatchDropId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines                         OrderLine[]
   statusEvents                  OrderStatusEvent[]
 
@@ -465,6 +469,7 @@ model Order {
   @@index([companyId, deliveryDate])
   @@index([employeeId, deliveryDate])
   @@index([effectivePricingTierId])
+  @@index([dispatchDropId])
 }
 
 model OrderLine {
@@ -495,11 +500,45 @@ model OrderCombination {
   quantity            Int
   unitPriceMinorUnits Int
   totalMinorUnits     Int
+  kitchenStartedAt    DateTime?                @db.Timestamptz(3)
+  kitchenCompletedAt  DateTime?                @db.Timestamptz(3)
   createdAt           DateTime                 @default(now())
   orderLine           OrderLine                @relation(fields: [orderLineId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   selectedOptions     OrderCombinationOption[]
 
   @@unique([orderLineId, selectionKey])
+}
+
+enum DispatchDropStatus {
+  WAITING_KITCHEN
+  DISPATCH_READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+}
+
+model DispatchDrop {
+  id                  String             @id @default(uuid()) @db.Uuid
+  groupingKey         String             @unique @db.VarChar(64)
+  companyId           String             @db.Uuid
+  deliveryDate        DateTime           @db.Date
+  deliveryTimeMinutes Int
+  assignedDriverId    String?            @db.Uuid
+  status              DispatchDropStatus @default(WAITING_KITCHEN)
+  dispatchReadyAt     DateTime?          @db.Timestamptz(3)
+  outForDeliveryAt    DateTime?          @db.Timestamptz(3)
+  deliveredAt         DateTime?          @db.Timestamptz(3)
+  deliveryNote        String?            @db.VarChar(1000)
+  deliveryPhotoUrl    String?            @db.VarChar(2048)
+  wasOnTime           Boolean?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  company             Company            @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignedDriver      StaffUser?         @relation("DispatchDropDriver", fields: [assignedDriverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orders              Order[]
+
+  @@index([deliveryDate, status])
+  @@index([companyId, deliveryDate])
+  @@index([assignedDriverId, deliveryDate])
 }
 
 model OrderCombinationOption {

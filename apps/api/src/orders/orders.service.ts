@@ -8,6 +8,7 @@ import { PermissionCode } from '../authorization/permission-code';
 import { multiplyMinorUnits, sumMinorUnits } from '../common/money/money.util';
 import { createPaginatedResponse, toPaginationOptions } from '../common/pagination/pagination.util';
 import { combineLocalDateAndTime } from '../common/time/time.util';
+import { DispatchDropManager } from '../dispatch/dispatch-drop-manager.service';
 import { MenuService } from '../menu/menu.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingResolver } from '../pricing/pricing-resolver.service';
@@ -42,6 +43,7 @@ export class OrdersService {
     private readonly pricingResolver: PricingResolver,
     private readonly menuService: MenuService,
     private readonly authorizationService: AuthorizationService,
+    private readonly dispatchDrops: DispatchDropManager,
   ) {}
 
   async create(input: CreateOrderDto, actorStaffUserId: string) {
@@ -152,6 +154,7 @@ export class OrdersService {
       if (!order) throw new NotFoundException('Order not found.');
       if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.PLACED && order.status !== OrderStatus.CONFIRMED) throw new ConflictException('Order cannot be cancelled from its current status.');
       if (!canOverride && (order.status === OrderStatus.CONFIRMED || new Date() >= order.cutoffAt)) throw new ConflictException('Order cannot be cancelled after cutoff.');
+      if (order.status === OrderStatus.CONFIRMED) await this.dispatchDrops.detachForCancellation(tx, id);
       const changed = await tx.order.updateMany({ where: { id, status: order.status }, data: { status: OrderStatus.CANCELLED } });
       if (changed.count !== 1) throw new ConflictException('Order status changed before cancellation.');
       await this.event(tx, id, order.status as OrderStatus, OrderStatus.CANCELLED, actorStaffUserId, canOverride ? 'Order cancelled by override.' : 'Order cancelled.');
@@ -165,12 +168,15 @@ export class OrdersService {
       const order = await tx.order.findUnique({ where: { id } });
       if (!order) throw new NotFoundException('Order not found.');
       if (order.status !== OrderStatus.CONFIRMED) throw new ConflictException('Only a Confirmed Order supports a delivery override.');
+      const changesGrouping = input.deliveryAddressId !== undefined || input.deliveryTime !== undefined;
+      await this.dispatchDrops.assertLogisticsChangeAllowed(tx, id, changesGrouping);
       const address = input.deliveryAddressId === undefined ? null : await this.requireActiveAddress(tx, order.companyId, input.deliveryAddressId);
       await tx.order.update({ where: { id }, data: {
         ...(address ? addressSnapshot(address) : {}),
         ...(input.deliveryTime === undefined ? {} : { deliveryTimeMinutes: parseTime(input.deliveryTime) }),
         ...(input.packaging === undefined ? {} : { packaging: input.packaging.trim() }),
       } });
+      if (changesGrouping) await this.dispatchDrops.regroupAfterLogisticsChange(tx, id);
     });
     return this.get(id);
   }
@@ -189,6 +195,7 @@ export class OrdersService {
         if (changed.count === 1) {
           if (next === OrderStatus.CONFIRMED) confirmed += 1; else cancelled += 1;
           await this.event(tx, order.id, order.status, next, actorStaffUserId, 'Cutoff processed.');
+          if (next === OrderStatus.CONFIRMED) await this.dispatchDrops.syncOrder(tx, order.id);
         }
       }
       return { deliveryDate: deliveryDateValue, confirmed, cancelled };

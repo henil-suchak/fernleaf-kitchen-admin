@@ -5,10 +5,12 @@ import { AuthModule } from './auth/auth.module';
 import { AuthorizationModule } from './authorization/authorization.module';
 import { CatalogueModule } from './catalogue/catalogue.module';
 import { CompaniesModule } from './companies/companies.module';
+import { DispatchModule } from './dispatch/dispatch.module';
 import { EmployeesModule } from './employees/employees.module';
 import { HealthController } from './health/health.controller';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
+import { KitchenModule } from './kitchen/kitchen.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PricingModule } from './pricing/pricing.module';
 import { ReferenceDataModule } from './reference-data/reference-data.module';
@@ -28,6 +30,8 @@ import { SettingsModule } from './settings/settings.module';
     MenuModule,
     PricingModule,
     OrdersModule,
+    KitchenModule,
+    DispatchModule,
   ],
   controllers: [HealthController],
 })

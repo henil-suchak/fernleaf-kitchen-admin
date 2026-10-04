@@ -1,5 +1,6 @@
 import {
   DishTemperature,
+  DispatchDropStatus,
   KitchenSettingsKey,
   OrderStatus,
   PrismaClient,
@@ -20,6 +21,7 @@ import {
 } from '../src/catalogue/catalogue-name.util';
 import { normalizeCompanyDomain } from '../src/companies/company-domain.util';
 import { normalizeCompanyName } from '../src/companies/company-name.util';
+import { dispatchGroupingKey } from '../src/dispatch/dispatch-grouping.util';
 
 const prisma = new PrismaClient();
 
@@ -212,6 +214,7 @@ async function seed(): Promise<void> {
   await seedEmployees();
   await seedMenu();
   await seedOrders();
+  await seedKitchenAndDispatch();
 }
 
 async function seedCatalogue(): Promise<void> {
@@ -598,6 +601,93 @@ function seededStatusEvents(orderId: string, status: OrderStatus) {
   return events;
 }
 
+const operationalOrderIds = {
+  ready: '00000000-0000-4000-8000-000000000091',
+  started: '00000000-0000-4000-8000-000000000092',
+  pending: '00000000-0000-4000-8000-000000000093',
+} as const;
+
+async function seedKitchenAndDispatch(): Promise<void> {
+  const settings = await prisma.kitchenSettings.findUniqueOrThrow({ where: { key: KitchenSettingsKey.GLOBAL } });
+  const company = await prisma.companyEmailDomain.findUniqueOrThrow({ where: { domain: normalizeCompanyDomain('northstarconsulting.com') }, select: { company: { select: { id: true, defaultDeliveryTimeMinutes: true, deliveryMinutesBefore: true, defaultPackaging: true, driverInstructions: true } } } }).then(({ company: value }) => value);
+  const [employee, driver, dish, riceGroup, brownRice, address, tier] = await Promise.all([
+    prisma.employee.findUniqueOrThrow({ where: { companyId_email: { companyId: company.id, email: 'maya@northstarconsulting.com' } } }),
+    prisma.staffUser.findUniqueOrThrow({ where: { email: 'driver@test.com' } }),
+    prisma.dish.findUniqueOrThrow({ where: { sku: normalizeSku('PPB-001') }, include: { kitchenStation: true } }),
+    prisma.optionGroup.findUniqueOrThrow({ where: { normalizedName: 'choose rice' } }),
+    prisma.option.findUniqueOrThrow({ where: { normalizedName: 'brown rice' } }),
+    prisma.companyAddress.findFirstOrThrow({ where: { companyId: company.id, isActive: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+    prisma.pricingTier.findUniqueOrThrow({ where: { normalizedName: 'standard' } }),
+  ]);
+  const [dishPrice, optionPrice] = await Promise.all([
+    prisma.dishTierPrice.findFirstOrThrow({ where: { dishId: dish.id, pricingTierId: tier.id } }),
+    prisma.optionTierPrice.findFirstOrThrow({ where: { optionId: brownRice.id, pricingTierId: tier.id } }),
+  ]);
+  // PostgreSQL DATE values represent a calendar day, not an instant. Convert the
+  // Kitchen-local "today" label to UTC midnight so Prisma stores that same label.
+  const deliveryDateLabel = DateTime.now().setZone(settings.timezone).toISODate();
+  if (!deliveryDateLabel) throw new Error('Could not determine the Kitchen-local date for operational seed data.');
+  const deliveryDate = DateTime.fromISO(deliveryDateLabel, { zone: 'utc' }).toJSDate();
+  const now = new Date();
+  const unitPriceMinorUnits = dishPrice.explicitPriceMinorUnits + optionPrice.explicitPriceMinorUnits;
+  const fixtures = [
+    { id: operationalOrderIds.ready, time: 13 * 60, state: 'completed' as const },
+    { id: operationalOrderIds.started, time: 14 * 60, state: 'started' as const },
+    { id: operationalOrderIds.pending, time: 15 * 60, state: 'pending' as const },
+  ];
+  for (const fixture of fixtures) {
+    const existingOrder = await prisma.order.findUnique({ where: { id: fixture.id }, select: { id: true } });
+    if (!existingOrder) {
+      await prisma.order.create({
+        data: {
+        id: fixture.id, employeeId: employee.id, companyId: company.id, effectivePricingTierId: tier.id, pricingTierNameSnapshot: tier.name,
+        status: OrderStatus.CONFIRMED, deliveryDate, cutoffAt: now,
+        sourceCompanyAddressId: address.id, deliveryAddressLabel: address.label, deliveryAddressLine1: address.addressLine1, deliveryAddressLine2: address.addressLine2, deliveryCity: address.city, deliveryStateRegion: address.stateRegion, deliveryPostalCode: address.postalCode, deliveryCountry: address.country,
+        deliveryTimeMinutes: fixture.time, deliveryMinutesBeforeSnapshot: company.deliveryMinutesBefore, packaging: company.defaultPackaging, driverInstructionsSnapshot: company.driverInstructions, totalMinorUnits: unitPriceMinorUnits,
+        lines: { create: [{ dishId: dish.id, dishNameSnapshot: dish.name, dishSkuSnapshot: dish.sku, kitchenStationId: dish.kitchenStationId, kitchenStationNameSnapshot: dish.kitchenStation?.name ?? null, quantity: 1, dishUnitPriceMinorUnits: dishPrice.explicitPriceMinorUnits, lineTotalMinorUnits: unitPriceMinorUnits,
+          combinations: { create: [{ selectionKey: `${riceGroup.id}:${brownRice.id}`, quantity: 1, unitPriceMinorUnits, totalMinorUnits: unitPriceMinorUnits, kitchenStartedAt: fixture.state === 'pending' ? null : now, kitchenCompletedAt: fixture.state === 'completed' ? now : null,
+            selectedOptions: { create: [{ optionGroupId: riceGroup.id, optionId: brownRice.id, optionGroupNameSnapshot: riceGroup.name, optionNameSnapshot: brownRice.name, optionUnitPriceMinorUnits: optionPrice.explicitPriceMinorUnits }] },
+          }] },
+        }] },
+        statusEvents: { create: [{ id: seededEventId(fixture.id, 1), fromStatus: null, toStatus: OrderStatus.DRAFT, note: 'Seeded draft created.' }, { id: seededEventId(fixture.id, 2), fromStatus: OrderStatus.DRAFT, toStatus: OrderStatus.PLACED, note: 'Seeded order placed.' }, { id: seededEventId(fixture.id, 3), fromStatus: OrderStatus.PLACED, toStatus: OrderStatus.CONFIRMED, note: 'Seeded cutoff confirmation.' }] },
+        },
+      });
+    } else {
+      await prisma.order.update({
+        where: { id: fixture.id },
+        data: { status: OrderStatus.CONFIRMED, deliveryDate, deliveryTimeMinutes: fixture.time, dispatchDropId: null },
+      });
+      await prisma.orderCombination.updateMany({
+        where: { orderLine: { orderId: fixture.id } },
+        data: fixture.state === 'completed'
+          ? { kitchenStartedAt: now, kitchenCompletedAt: now }
+          : fixture.state === 'started'
+            ? { kitchenStartedAt: now, kitchenCompletedAt: null }
+            : { kitchenStartedAt: null, kitchenCompletedAt: null },
+      });
+    }
+  }
+  const readyOrder = await prisma.order.findUniqueOrThrow({ where: { id: operationalOrderIds.ready } });
+  const groupingKey = dispatchGroupingKey(readyOrder);
+  const drop = await prisma.dispatchDrop.upsert({
+    where: { id: '00000000-0000-4000-8000-0000000000a1' },
+    update: { groupingKey, deliveryDate, deliveryTimeMinutes: readyOrder.deliveryTimeMinutes, assignedDriverId: driver.id, status: DispatchDropStatus.DISPATCH_READY, dispatchReadyAt: now, outForDeliveryAt: null, deliveredAt: null, deliveryNote: null, deliveryPhotoUrl: null, wasOnTime: null },
+    create: { id: '00000000-0000-4000-8000-0000000000a1', groupingKey, companyId: company.id, deliveryDate, deliveryTimeMinutes: readyOrder.deliveryTimeMinutes, assignedDriverId: driver.id, status: DispatchDropStatus.DISPATCH_READY, dispatchReadyAt: now },
+  });
+  await prisma.order.update({ where: { id: operationalOrderIds.ready }, data: { dispatchDropId: drop.id } });
+  for (const fixture of fixtures.slice(1)) {
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: fixture.id } });
+    const key = dispatchGroupingKey(order);
+    const fixtureDropId = fixture.id === operationalOrderIds.started ? '00000000-0000-4000-8000-0000000000a2' : '00000000-0000-4000-8000-0000000000a3';
+    const fixtureDrop = await prisma.dispatchDrop.upsert({
+      where: { id: fixtureDropId },
+      update: { groupingKey: key, deliveryDate, deliveryTimeMinutes: order.deliveryTimeMinutes, assignedDriverId: driver.id, status: DispatchDropStatus.WAITING_KITCHEN, dispatchReadyAt: null, outForDeliveryAt: null, deliveredAt: null, deliveryNote: null, deliveryPhotoUrl: null, wasOnTime: null },
+      create: { id: fixtureDropId, groupingKey: key, companyId: company.id, deliveryDate, deliveryTimeMinutes: order.deliveryTimeMinutes, assignedDriverId: driver.id },
+    });
+    await prisma.order.update({ where: { id: fixture.id }, data: { dispatchDropId: fixtureDrop.id } });
+  }
+}
+
 async function seedMenuCategory(name: string, sortOrder: number, isSecret: boolean) {
   const normalized = normalizeCatalogueName(name);
   return prisma.menuCategory.upsert({
@@ -908,7 +998,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 seed()
   .then(() => {
     console.log(
-      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, Menu, and Orders seed completed.',
+      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, Menu, Orders, Kitchen, and Dispatch seed completed.',
     );
   })
   .catch((error: unknown) => {

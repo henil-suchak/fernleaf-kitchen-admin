@@ -1,12 +1,12 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, and Orders backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, Orders, Kitchen, and Dispatch backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-Kitchen workflow, dispatch, billing, and frontend business screens do not exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+Billing, dashboards, portions, and frontend business screens do not exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -84,6 +84,8 @@ npm run test:companies --workspace=@fernleaf/api
 npm run test:employees --workspace=@fernleaf/api
 npm run test:menu --workspace=@fernleaf/api
 npm run test:orders --workspace=@fernleaf/api
+npm run test:kitchen --workspace=@fernleaf/api
+npm run test:dispatch --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -251,7 +253,7 @@ The idempotent local seed adds two dishes (`Paneer Power Bowl` and `Paneer Garde
 
 ## Pricing backend
 
-Pricing is a backend-only module for assigning prices to catalogue Dishes and Options. Companies may reference an active tier, but the module does not resolve a Menu, snapshot an Order, calculate tax, or add a frontend screen.
+Pricing is a backend-only module for assigning prices to catalogue Dishes and Options. Companies may reference an active tier, but the module does not calculate tax or add a frontend screen.
 
 A tier has no persisted direct/derived mode. Its behavior is inferred from `derivationSource`:
 
@@ -304,7 +306,7 @@ Employees are people at a Company who can later place or manage meal orders. The
 
 An Employee belongs to exactly one Company. The database stores the trimmed, lowercase email directly in `Employee.email` and enforces `@@unique([companyId, email])`: the same email may exist at different Companies but not twice within one Company. The API does not apply an email-domain-to-Company rule because that would make an Employee's identity depend on a mutable Company-domain setting.
 
-Employees can optionally record a phone number and three future self-service preferences: `canChooseDeliveryAddress`, `canChangeDeliveryTime`, and `canChangePackaging`. All flags default to `false`. Allergens and dietary tags use explicit join tables (`EmployeeAllergen` and `EmployeeDietaryTag`) rather than JSON arrays, so their foreign keys protect data integrity and future queries remain straightforward.
+Employees can optionally record a phone number and three self-service preferences: `canChooseDeliveryAddress`, `canChangeDeliveryTime`, and `canChangePackaging`. All flags default to `false`. Allergens and dietary tags use explicit join tables (`EmployeeAllergen` and `EmployeeDietaryTag`) rather than JSON arrays, so their foreign keys protect data integrity and future queries remain straightforward.
 
 New Employees, moves, reactivations, and new preference assignments require active referenced records. Existing Employee details remain readable after their Company, allergen, or dietary tag becomes inactive, preserving historical context. A supplied `allergenIds` or `dietaryTagIds` array replaces that complete membership; omitting it leaves the corresponding membership unchanged.
 
@@ -318,7 +320,7 @@ New Employees, moves, reactivations, and new preference assignments require acti
 
 Company ownership is a guarded compatibility rule: an owner must be active, belong to that same active Company, and may not own another Company. An existing owner must be replaced rather than cleared. The current owner cannot be moved or deactivated until reassigned. Simple Employee create/update work uses normal Prisma transactions; the ownership-sensitive move, deactivation, and owner-assignment paths use serializable transactions because they can race with ownership changes.
 
-The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import, Orders, Kitchen, Dispatch, Billing, and frontend work are intentionally not implemented.
+The idempotent local seed creates two Employees for Acme Technologies and two for Northstar Consulting, gives each Company an owner only when no owner exists, and upserts their baseline reference memberships. Re-running it does not update matching Employee scalar data or ownership; it does add any missing baseline membership rows. CSV import, Billing, dashboards, portions, and frontend business screens are intentionally not implemented.
 
 ## Menu backend
 
@@ -363,6 +365,69 @@ Each Order line represents one Dish. Its combinations represent distinct selecte
 Normal staff can cancel Draft/Placed Orders before cutoff. A user with `ORDER_OVERRIDE` can cancel eligible Draft/Placed Orders after cutoff and Confirmed Orders; Delivered, Cancelled, and Rejected Orders cannot be cancelled. Every state transition writes an `OrderStatusEvent`.
 
 The idempotent Prisma seed creates deterministic UUID-backed examples for Draft, Placed, Confirmed, Delivered, Cancelled, and Rejected Orders using dates relative to the configured Kitchen timezone. It does not overwrite an existing seeded Order.
+
+## Kitchen backend
+
+Kitchen executes the food preparation of confirmed Orders. It does not create a second kitchen-task model: one immutable `OrderCombination` is exactly one prep unit, so Kitchen writes only `kitchenStartedAt` and `kitchenCompletedAt` on that existing record. This keeps the work identity tied to the historical Dish, station, selected Options, and quantity already snapshotted by Orders.
+
+Timestamp state is intentionally minimal:
+
+- neither timestamp: not started;
+- `kitchenStartedAt` only: started;
+- both timestamps: completed.
+
+Completing an unstarted prep unit sets both timestamps to the same instant. Repeating start or completion returns `409 CONFLICT`. `ORDER_OVERRIDE` may force-complete all unfinished units on a Confirmed Order; completed units retain their original timestamps, so a repeated force-complete is a safe no-op for them.
+
+There is no duplicated Order-level Kitchen state. The API derives an Order’s kitchen start as the earliest prep-unit start, and its kitchen ready time only when every prep unit is completed (the latest completion time). The Kitchen board uses the Order’s immutable delivery snapshot plus `KitchenSettings.timezone` to derive these non-persisted plan values:
+
+```text
+plannedDeliveryAt       = deliveryDate + deliveryTimeMinutes in Kitchen timezone
+plannedDispatchReadyAt  = plannedDeliveryAt - deliveryMinutesBeforeSnapshot
+plannedKitchenReadyAt   = plannedDispatchReadyAt - 30 minutes
+```
+
+The board calculates `late` when an Order is not kitchen-ready and the current instant is past `plannedKitchenReadyAt`. It calculates `atRisk` during the documented 30-minute interval before that plan time, while the Order is still not kitchen-ready. Because these values are derived, an authorized confirmed-Order delivery-time override automatically updates the plan without a stale cached timestamp.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/kitchen/board?deliveryDate=YYYY-MM-DD&stationId=` | `KITCHEN_READ` | Show Confirmed Order prep units, optionally for one snapshotted station. |
+| `POST` | `/api/kitchen/units/:combinationId/start` | `KITCHEN_UPDATE` | Start one prep unit once. |
+| `POST` | `/api/kitchen/units/:combinationId/complete` | `KITCHEN_UPDATE` | Complete one prep unit once. |
+| `POST` | `/api/kitchen/orders/:orderId/force-complete` | `ORDER_OVERRIDE` | Complete every unfinished prep unit of a Confirmed Order. |
+
+The seed supplies three operational Confirmed Orders for the current Kitchen-local date: completed, started, and not started. These deterministic fixtures are refreshed to that date when the seed runs, so `driver@test.com` and the Kitchen/Dispatch boards remain demonstrable after repeated local setup.
+
+## Dispatch backend
+
+Dispatch manages the physical delivery aggregate, `DispatchDrop`. An Order belongs to at most one current Drop through nullable `Order.dispatchDropId`; there is no unnecessary join table. A Confirmed Order is attached idempotently when cutoff processing confirms it, and the Dispatch board also performs the same idempotent sync for Confirmed Orders on its requested date.
+
+The deterministic Drop grouping key is a SHA-256 hash of normalized (trimmed, collapsed whitespace, lowercase) snapshots of:
+
+```text
+Order.companyId + deliveryDate + exact deliveryTimeMinutes +
+delivery address label + line 1 + line 2 + city + state/region + postal code + country
+```
+
+It deliberately uses the original Company and Order’s full historical delivery snapshot—not a mutable CompanyAddress record or current Company defaults. The lifecycle is one-way:
+
+```text
+WAITING_KITCHEN -> DISPATCH_READY -> OUT_FOR_DELIVERY -> DELIVERED
+```
+
+Dispatch readiness requires at least one member, every member still `CONFIRMED`, and every prep unit completed. Departure additionally requires an assigned, active StaffUser who currently has both delivery-own permissions. A Company’s default driver is assigned only when a Drop is first created and only if that same permission-based validity check succeeds; no role-code check is used.
+
+The driver’s own endpoints always require delivery-own permissions. Delivery additionally confirms that the authenticated StaffUser is the Drop’s assigned driver. In the same serializable transaction, delivery records optional note/photo data, calculates `wasOnTime` from the configured Kitchen timezone and exact delivery time, transitions every member Order from `CONFIRMED` to `DELIVERED`, and creates one `OrderStatusEvent` per successful Order transition.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/dispatch/board?deliveryDate=YYYY-MM-DD` | `DISPATCH_READ` | List grouped Drops for a delivery date. |
+| `PATCH` | `/api/dispatch/drops/:id/driver` | `DISPATCH_UPDATE` | Assign an active delivery-capable driver before departure. |
+| `POST` | `/api/dispatch/drops/:id/dispatch-ready` | `DISPATCH_UPDATE` | Advance a kitchen-ready Drop once. |
+| `POST` | `/api/dispatch/drops/:id/out-for-delivery` | `DISPATCH_UPDATE` | Mark a dispatch-ready, assigned Drop as departed. |
+| `GET` | `/api/driver/drops/today` | `DELIVERY_OWN_READ` | Show only the current driver’s Drops for today in Kitchen timezone. |
+| `POST` | `/api/driver/drops/:id/deliver` | `DELIVERY_OWN_UPDATE` | Let only the assigned driver complete a departed Drop. |
+
+An `ORDER_OVERRIDE` delivery address or time change before departure detaches and regroupes the Confirmed Order in the same transaction. Packaging-only changes do not regroup. Address/time changes and Confirmed cancellation are rejected once the Drop is out for delivery; before departure, cancellation detaches the Order and removes an empty non-departed Drop. This prevents a Drop’s grouping key from ever disagreeing with its remaining Order snapshots.
 
 ## Environment variables
 
