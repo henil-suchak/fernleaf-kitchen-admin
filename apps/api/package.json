@@ -22,7 +22,9 @@
     "test:menu": "tsc -p tsconfig.test.json && node --test dist/test/test/menu.integration.spec.js",
     "test:orders": "tsc -p tsconfig.test.json && node --test dist/test/test/orders.integration.spec.js",
     "test:kitchen": "tsc -p tsconfig.test.json && node --test dist/test/test/kitchen.integration.spec.js",
-    "test:dispatch": "tsc -p tsconfig.test.json && node --test dist/test/test/dispatch.integration.spec.js"
+    "test:dispatch": "tsc -p tsconfig.test.json && node --test dist/test/test/dispatch.integration.spec.js",
+    "test:billing": "tsc -p tsconfig.test.json && node --test dist/test/test/billing.integration.spec.js",
+    "test:dashboard": "tsc -p tsconfig.test.json && node --test dist/test/test/dashboard.integration.spec.js"
   },
   "dependencies": {
     "@fernleaf/contracts": "*",

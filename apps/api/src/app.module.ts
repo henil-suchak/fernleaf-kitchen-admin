@@ -3,9 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 
 import { AuthModule } from './auth/auth.module';
 import { AuthorizationModule } from './authorization/authorization.module';
+import { BillingModule } from './billing/billing.module';
 import { CatalogueModule } from './catalogue/catalogue.module';
 import { CompaniesModule } from './companies/companies.module';
 import { DispatchModule } from './dispatch/dispatch.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { EmployeesModule } from './employees/employees.module';
 import { HealthController } from './health/health.controller';
 import { MenuModule } from './menu/menu.module';
@@ -32,6 +34,8 @@ import { SettingsModule } from './settings/settings.module';
     OrdersModule,
     KitchenModule,
     DispatchModule,
+    BillingModule,
+    DashboardModule,
   ],
   controllers: [HealthController],
 })

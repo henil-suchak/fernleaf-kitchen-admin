@@ -1,12 +1,12 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, Orders, Kitchen, and Dispatch backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, Orders, Kitchen, Dispatch, Billing, and Dashboard backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-Billing, dashboards, portions, and frontend business screens do not exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+Portions and frontend business screens do not exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -86,6 +86,8 @@ npm run test:menu --workspace=@fernleaf/api
 npm run test:orders --workspace=@fernleaf/api
 npm run test:kitchen --workspace=@fernleaf/api
 npm run test:dispatch --workspace=@fernleaf/api
+npm run test:billing --workspace=@fernleaf/api
+npm run test:dashboard --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -428,6 +430,39 @@ The driver’s own endpoints always require delivery-own permissions. Delivery a
 | `POST` | `/api/driver/drops/:id/deliver` | `DELIVERY_OWN_UPDATE` | Let only the assigned driver complete a departed Drop. |
 
 An `ORDER_OVERRIDE` delivery address or time change before departure detaches and regroupes the Confirmed Order in the same transaction. Packaging-only changes do not regroup. Address/time changes and Confirmed cancellation are rejected once the Drop is out for delivery; before departure, cancellation detaches the Order and removes an empty non-departed Drop. This prevents a Drop’s grouping key from ever disagreeing with its remaining Order snapshots.
+
+## Billing backend
+
+Billing creates internal Company Invoices from historical Order snapshots. An `Invoice` belongs to one original Company, and an `Order` has at most one nullable `invoiceId`; no `InvoiceOrder` join table is needed. Invoice creation accepts only unique Orders from the requested Company that are still `CONFIRMED` or already `DELIVERED`, and calculates `totalMinorUnits` as the exact integer sum of their stored Order totals.
+
+An Invoice is a frozen financial snapshot. Its total and attached Order membership never automatically change after creation. An otherwise-authorized Confirmed Order cancellation remains allowed even when invoiced; the Invoice keeps the originally invoiced amount and relation. Later delivery address/time changes likewise do not recalculate the Invoice. A short delivery creates no automatic adjustment. Refunds, credit notes, tax, external accounting, Invoice adjustments, and Invoice voiding are deliberately out of scope.
+
+Invoices have only `OPEN` and terminal `PAID` states. Marking an Open Invoice paid records `paidAt`; repeated payment returns `409 CONFLICT`.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/billing/companies/:companyId/uninvoiced-orders` | `BILLING_READ` | Paginated billable Orders for one Company with no Invoice. |
+| `POST` | `/api/billing/invoices` | `BILLING_WRITE` | Create one Open Invoice from same-Company Orders. |
+| `GET` | `/api/billing/invoices` | `BILLING_READ` | Paginated Invoices, optionally by Company or status. |
+| `GET` | `/api/billing/invoices/:id` | `BILLING_READ` | Read an Invoice and its historical Orders. |
+| `POST` | `/api/billing/invoices/:id/paid` | `BILLING_WRITE` | Mark an Open Invoice paid once. |
+
+Creation runs in a serializable transaction: it validates non-empty unique IDs, loads every selected Order, verifies Company/status/uninvoiced eligibility, creates the frozen Invoice total, conditionally attaches every Order with `invoiceId = null`, and verifies that every attachment succeeded. A concurrent Invoice or Order mutation therefore rolls back and returns `409 CONFLICT`.
+
+The seed creates one Open Invoice for a seeded Confirmed Order and one Paid Invoice for a seeded Delivered Order. The current Kitchen/Dispatch Orders remain uninvoiced and demonstrable.
+
+## Dashboard backend
+
+Dashboards are read-only derived views. `DashboardModule` adds no database models, snapshots, metrics tables, events, or analytics persistence. Every dashboard determines “today” from `KitchenSettings.timezone`; Cancelled and Rejected Orders never increase billable or operational metrics.
+
+| Endpoint | Permission | Contents |
+| --- | --- | --- |
+| `GET /api/dashboard/admin` | `ORDER_READ`, `KITCHEN_READ`, `DISPATCH_READ`, `BILLING_READ` | Today’s commercial Order counts, confirmed value, uninvoiced value, Kitchen risk, and Drop status summary. |
+| `GET /api/dashboard/kitchen` | `KITCHEN_READ` | Today’s Confirmed prep-unit state counts, snapshot station breakdown, and Kitchen risk. |
+| `GET /api/dashboard/dispatch` | `DISPATCH_READ` | Today’s operational Drop counts, unassigned drivers, delivery risk, and overdue Drops. |
+| `GET /api/dashboard/driver` | `DELIVERY_OWN_READ` | Only the authenticated Driver’s today Drops, next Drop, remaining work, delivered count, and on-time count. |
+
+`todayConfirmedOrderValue` is the integer sum of today’s `CONFIRMED` and `DELIVERED` Order snapshots regardless of Invoice membership. `todayUninvoicedBillableValue` uses the same statuses/date with `invoiceId = null`. Kitchen late/at-risk calculations reuse the existing Order planning and Kitchen-risk utilities. Dispatch delivery risk is active, non-Delivered work within 30 minutes of its planned delivery instant; overdue active work is past that instant.
 
 ## Environment variables
 

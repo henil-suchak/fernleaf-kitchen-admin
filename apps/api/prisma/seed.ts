@@ -1,6 +1,7 @@
 import {
   DishTemperature,
   DispatchDropStatus,
+  InvoiceStatus,
   KitchenSettingsKey,
   OrderStatus,
   PrismaClient,
@@ -215,6 +216,7 @@ async function seed(): Promise<void> {
   await seedMenu();
   await seedOrders();
   await seedKitchenAndDispatch();
+  await seedBilling();
 }
 
 async function seedCatalogue(): Promise<void> {
@@ -688,6 +690,28 @@ async function seedKitchenAndDispatch(): Promise<void> {
   }
 }
 
+const seededInvoiceIds = {
+  open: '00000000-0000-4000-8000-0000000000b1',
+  paid: '00000000-0000-4000-8000-0000000000b2',
+} as const;
+
+async function seedBilling(): Promise<void> {
+  const fixtures = [
+    { invoiceId: seededInvoiceIds.open, orderId: seededOrderIds.CONFIRMED, status: InvoiceStatus.OPEN },
+    { invoiceId: seededInvoiceIds.paid, orderId: seededOrderIds.DELIVERED, status: InvoiceStatus.PAID },
+  ] as const;
+  for (const fixture of fixtures) {
+    const order = await prisma.order.findUnique({ where: { id: fixture.orderId }, select: { id: true, companyId: true, invoiceId: true, totalMinorUnits: true } });
+    if (!order || (order.invoiceId !== null && order.invoiceId !== fixture.invoiceId)) continue;
+    const invoice = await prisma.invoice.upsert({
+      where: { id: fixture.invoiceId },
+      update: {},
+      create: { id: fixture.invoiceId, companyId: order.companyId, status: fixture.status, totalMinorUnits: order.totalMinorUnits, ...(fixture.status === InvoiceStatus.PAID ? { paidAt: new Date() } : {}) },
+    });
+    if (order.invoiceId === null) await prisma.order.update({ where: { id: order.id }, data: { invoiceId: invoice.id } });
+  }
+}
+
 async function seedMenuCategory(name: string, sortOrder: number, isSecret: boolean) {
   const normalized = normalizeCatalogueName(name);
   return prisma.menuCategory.upsert({
@@ -998,7 +1022,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 seed()
   .then(() => {
     console.log(
-      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, Menu, Orders, Kitchen, and Dispatch seed completed.',
+      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, Menu, Orders, Kitchen, Dispatch, and Billing seed completed.',
     );
   })
   .catch((error: unknown) => {

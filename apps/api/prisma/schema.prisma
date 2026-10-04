@@ -300,6 +300,7 @@ model Company {
   hiddenMenuItems            CompanyHiddenMenuItem[]
   orders                     Order[]                     @relation("CompanyOrders")
   dispatchDrops              DispatchDrop[]
+  invoices                   Invoice[]
 }
 
 model CompanyEmailDomain {
@@ -432,6 +433,24 @@ enum OrderStatus {
   REJECTED
 }
 
+enum InvoiceStatus {
+  OPEN
+  PAID
+}
+
+model Invoice {
+  id              String        @id @default(uuid()) @db.Uuid
+  companyId       String        @db.Uuid
+  status          InvoiceStatus @default(OPEN)
+  totalMinorUnits Int
+  createdAt       DateTime      @default(now())
+  paidAt          DateTime?     @db.Timestamptz(3)
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orders          Order[]
+
+  @@index([companyId, status, createdAt])
+}
+
 model Order {
   id                            String             @id @default(uuid()) @db.Uuid
   employeeId                    String             @db.Uuid
@@ -454,6 +473,7 @@ model Order {
   packaging                     String             @db.VarChar(40)
   driverInstructionsSnapshot    String?            @db.VarChar(1000)
   dispatchDropId                String?            @db.Uuid
+  invoiceId                     String?            @db.Uuid
   totalMinorUnits               Int
   createdAt                     DateTime           @default(now())
   updatedAt                     DateTime           @updatedAt
@@ -462,6 +482,7 @@ model Order {
   effectivePricingTier          PricingTier        @relation("OrderEffectivePricingTier", fields: [effectivePricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sourceCompanyAddress          CompanyAddress     @relation("CompanyAddressOrders", fields: [sourceCompanyAddressId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   dispatchDrop                  DispatchDrop?      @relation(fields: [dispatchDropId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  invoice                       Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   lines                         OrderLine[]
   statusEvents                  OrderStatusEvent[]
 
@@ -470,6 +491,7 @@ model Order {
   @@index([employeeId, deliveryDate])
   @@index([effectivePricingTierId])
   @@index([dispatchDropId])
+  @@index([invoiceId])
 }
 
 model OrderLine {
