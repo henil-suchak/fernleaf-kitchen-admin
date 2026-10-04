@@ -19,7 +19,8 @@
     "test:pricing": "tsc -p tsconfig.test.json && node --test dist/test/test/pricing.integration.spec.js",
     "test:companies": "tsc -p tsconfig.test.json && node --test dist/test/test/companies.integration.spec.js",
     "test:employees": "tsc -p tsconfig.test.json && node --test dist/test/test/employees.integration.spec.js",
-    "test:menu": "tsc -p tsconfig.test.json && node --test dist/test/test/menu.integration.spec.js"
+    "test:menu": "tsc -p tsconfig.test.json && node --test dist/test/test/menu.integration.spec.js",
+    "test:orders": "tsc -p tsconfig.test.json && node --test dist/test/test/orders.integration.spec.js"
   },
   "dependencies": {
     "@fernleaf/contracts": "*",

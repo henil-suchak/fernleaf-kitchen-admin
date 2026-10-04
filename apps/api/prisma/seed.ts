@@ -1,11 +1,13 @@
 import {
   DishTemperature,
   KitchenSettingsKey,
+  OrderStatus,
   PrismaClient,
   PricingDerivationSource,
   Weekday,
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { DateTime } from 'luxon';
 
 import {
   PermissionCode,
@@ -209,6 +211,7 @@ async function seed(): Promise<void> {
   await seedCompanies();
   await seedEmployees();
   await seedMenu();
+  await seedOrders();
 }
 
 async function seedCatalogue(): Promise<void> {
@@ -498,6 +501,101 @@ async function seedMenu(): Promise<void> {
     update: {},
     create: { companyId: acme.id, menuCategoryItemId: saladItem.id },
   });
+}
+
+const seededOrderIds: Record<OrderStatus, string> = {
+  DRAFT: '00000000-0000-4000-8000-000000000081',
+  PLACED: '00000000-0000-4000-8000-000000000082',
+  CONFIRMED: '00000000-0000-4000-8000-000000000083',
+  DELIVERED: '00000000-0000-4000-8000-000000000084',
+  CANCELLED: '00000000-0000-4000-8000-000000000085',
+  REJECTED: '00000000-0000-4000-8000-000000000086',
+};
+
+async function seedOrders(): Promise<void> {
+  const settings = await prisma.kitchenSettings.findUniqueOrThrow({ where: { key: KitchenSettingsKey.GLOBAL } });
+  const company = await prisma.companyEmailDomain.findUniqueOrThrow({
+    where: { domain: normalizeCompanyDomain('northstarconsulting.com') },
+    select: { company: { select: { id: true, defaultDeliveryTimeMinutes: true, deliveryMinutesBefore: true, defaultPackaging: true, driverInstructions: true } } },
+  }).then(({ company: value }) => value);
+  const [employee, dish, riceGroup, brownRice, address, tier] = await Promise.all([
+    prisma.employee.findUniqueOrThrow({ where: { companyId_email: { companyId: company.id, email: 'maya@northstarconsulting.com' } } }),
+    prisma.dish.findUniqueOrThrow({ where: { sku: normalizeSku('PPB-001') }, include: { kitchenStation: true } }),
+    prisma.optionGroup.findUniqueOrThrow({ where: { normalizedName: 'choose rice' } }),
+    prisma.option.findUniqueOrThrow({ where: { normalizedName: 'brown rice' } }),
+    prisma.companyAddress.findFirstOrThrow({ where: { companyId: company.id, isActive: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+    prisma.pricingTier.findUniqueOrThrow({ where: { normalizedName: 'standard' } }),
+  ]);
+  const [dishPrice, optionPrice] = await Promise.all([
+    prisma.dishTierPrice.findFirstOrThrow({ where: { dishId: dish.id, pricingTierId: tier.id } }),
+    prisma.optionTierPrice.findFirstOrThrow({ where: { optionId: brownRice.id, pricingTierId: tier.id } }),
+  ]);
+  const statuses: OrderStatus[] = [OrderStatus.DRAFT, OrderStatus.PLACED, OrderStatus.CONFIRMED, OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED];
+  const offsets: Record<OrderStatus, number> = { DRAFT: 1, PLACED: 2, CONFIRMED: -1, DELIVERED: -2, CANCELLED: 3, REJECTED: -3 };
+  const now = DateTime.now().setZone(settings.timezone).startOf('day');
+  const unitPriceMinorUnits = dishPrice.explicitPriceMinorUnits + optionPrice.explicitPriceMinorUnits;
+  for (const status of statuses) {
+    const id = seededOrderIds[status];
+    if (await prisma.order.findUnique({ where: { id }, select: { id: true } })) continue;
+    const deliveryDate = relativeWorkingDate(now, offsets[status]).toJSDate();
+    await prisma.order.create({
+      data: {
+        id, employeeId: employee.id, companyId: company.id, effectivePricingTierId: tier.id, pricingTierNameSnapshot: tier.name,
+        status, deliveryDate, cutoffAt: seededCutoff(deliveryDate, settings),
+        sourceCompanyAddressId: address.id, deliveryAddressLabel: address.label, deliveryAddressLine1: address.addressLine1, deliveryAddressLine2: address.addressLine2,
+        deliveryCity: address.city, deliveryStateRegion: address.stateRegion, deliveryPostalCode: address.postalCode, deliveryCountry: address.country,
+        deliveryTimeMinutes: company.defaultDeliveryTimeMinutes, deliveryMinutesBeforeSnapshot: company.deliveryMinutesBefore,
+        packaging: company.defaultPackaging, driverInstructionsSnapshot: company.driverInstructions, totalMinorUnits: unitPriceMinorUnits,
+        lines: { create: [{ dishId: dish.id, dishNameSnapshot: dish.name, dishSkuSnapshot: dish.sku, kitchenStationId: dish.kitchenStationId, kitchenStationNameSnapshot: dish.kitchenStation?.name ?? null, quantity: 1, dishUnitPriceMinorUnits: dishPrice.explicitPriceMinorUnits, lineTotalMinorUnits: unitPriceMinorUnits,
+          combinations: { create: [{ selectionKey: `${riceGroup.id}:${brownRice.id}`, quantity: 1, unitPriceMinorUnits, totalMinorUnits: unitPriceMinorUnits,
+            selectedOptions: { create: [{ optionGroupId: riceGroup.id, optionId: brownRice.id, optionGroupNameSnapshot: riceGroup.name, optionNameSnapshot: brownRice.name, optionUnitPriceMinorUnits: optionPrice.explicitPriceMinorUnits }] },
+          }] },
+        }] },
+        statusEvents: { create: seededStatusEvents(id, status) },
+      },
+    });
+  }
+}
+
+function relativeWorkingDate(start: DateTime, offset: number): DateTime {
+  let value = start;
+  let remaining = Math.abs(offset);
+  const direction = offset < 0 ? -1 : 1;
+  while (remaining > 0) {
+    value = value.plus({ days: direction });
+    if (value.weekday <= 5) remaining -= 1;
+  }
+  return value;
+}
+
+function seededCutoff(deliveryDate: Date, settings: { timezone: string; cutoffWorkingDays: number; cutoffTimeMinutes: number }): Date {
+  let date = DateTime.fromJSDate(deliveryDate, { zone: settings.timezone }).startOf('day');
+  let remaining = settings.cutoffWorkingDays;
+  while (remaining > 0) {
+    date = date.minus({ days: 1 });
+    if (date.weekday <= 5) remaining -= 1;
+  }
+  return date.set({ hour: Math.floor(settings.cutoffTimeMinutes / 60), minute: settings.cutoffTimeMinutes % 60, second: 0, millisecond: 0 }).toUTC().toJSDate();
+}
+
+function seededEventId(orderId: string, sequence: number): string {
+  return `${orderId.slice(0, -4)}e${orderId.slice(-2)}${sequence}`;
+}
+
+function seededStatusEvents(orderId: string, status: OrderStatus) {
+  const events: Array<{ id: string; fromStatus: OrderStatus | null; toStatus: OrderStatus; note: string }> = [
+    { id: seededEventId(orderId, 1), fromStatus: null, toStatus: OrderStatus.DRAFT, note: 'Seeded draft created.' },
+  ];
+  if ([OrderStatus.PLACED, OrderStatus.CONFIRMED, OrderStatus.DELIVERED, OrderStatus.REJECTED].includes(status)) {
+    events.push({ id: seededEventId(orderId, 2), fromStatus: OrderStatus.DRAFT, toStatus: OrderStatus.PLACED, note: 'Seeded order placed.' });
+  }
+  if ([OrderStatus.CONFIRMED, OrderStatus.DELIVERED].includes(status)) {
+    events.push({ id: seededEventId(orderId, 3), fromStatus: OrderStatus.PLACED, toStatus: OrderStatus.CONFIRMED, note: 'Seeded cutoff confirmation.' });
+  }
+  if (status === OrderStatus.DELIVERED) events.push({ id: seededEventId(orderId, 4), fromStatus: OrderStatus.CONFIRMED, toStatus: OrderStatus.DELIVERED, note: 'Seeded delivery completed.' });
+  if (status === OrderStatus.CANCELLED) events.push({ id: seededEventId(orderId, 2), fromStatus: OrderStatus.DRAFT, toStatus: OrderStatus.CANCELLED, note: 'Seeded cancellation.' });
+  if (status === OrderStatus.REJECTED) events.push({ id: seededEventId(orderId, 3), fromStatus: OrderStatus.PLACED, toStatus: OrderStatus.REJECTED, note: 'Seeded rejection.' });
+  return events;
 }
 
 async function seedMenuCategory(name: string, sortOrder: number, isSecret: boolean) {
@@ -810,7 +908,7 @@ function requiredValue<T>(value: T | undefined, label: string): T {
 seed()
   .then(() => {
     console.log(
-      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, and Menu seed completed.',
+      'Identity, settings, reference data, catalogue, pricing, Companies, Employees, Menu, and Orders seed completed.',
     );
   })
   .catch((error: unknown) => {

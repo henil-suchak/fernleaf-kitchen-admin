@@ -18,15 +18,16 @@ model Role {
 }
 
 model StaffUser {
-  id                     String    @id @default(uuid()) @db.Uuid
-  email                  String    @unique
+  id                     String             @id @default(uuid()) @db.Uuid
+  email                  String             @unique
   passwordHash           String
-  isActive               Boolean   @default(true)
-  roleId                 String    @db.Uuid
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-  role                   Role      @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  defaultDriverCompanies Company[] @relation("CompanyDefaultDriver")
+  isActive               Boolean            @default(true)
+  roleId                 String             @db.Uuid
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  role                   Role               @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  defaultDriverCompanies Company[]          @relation("CompanyDefaultDriver")
+  orderStatusEvents      OrderStatusEvent[] @relation("OrderStatusEventActor")
 }
 
 model Permission {
@@ -101,13 +102,14 @@ model DietaryTag {
 }
 
 model KitchenStation {
-  id             String   @id @default(uuid()) @db.Uuid
-  name           String   @db.VarChar(80)
-  normalizedName String   @unique @db.VarChar(80)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id             String      @id @default(uuid()) @db.Uuid
+  name           String      @db.VarChar(80)
+  normalizedName String      @unique @db.VarChar(80)
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
   dishes         Dish[]
+  orderLines     OrderLine[] @relation("KitchenStationOrderLines")
 }
 
 enum DishTemperature {
@@ -135,31 +137,34 @@ model Dish {
   dishOptionGroups  DishOptionGroup[]
   dishPrices        DishTierPrice[]
   menuCategoryItems MenuCategoryItem[]
+  orderLines        OrderLine[]        @relation("DishOrderLines")
 }
 
 model Option {
-  id                 String              @id @default(uuid()) @db.Uuid
-  name               String              @db.VarChar(80)
-  normalizedName     String              @unique @db.VarChar(80)
-  costMinorUnits     Int                 @default(0)
-  isActive           Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  optionGroupOptions OptionGroupOption[]
-  optionAllergens    OptionAllergen[]
-  optionDietaryTags  OptionDietaryTag[]
-  optionPrices       OptionTierPrice[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  name                    String                   @db.VarChar(80)
+  normalizedName          String                   @unique @db.VarChar(80)
+  costMinorUnits          Int                      @default(0)
+  isActive                Boolean                  @default(true)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  optionGroupOptions      OptionGroupOption[]
+  optionAllergens         OptionAllergen[]
+  optionDietaryTags       OptionDietaryTag[]
+  optionPrices            OptionTierPrice[]
+  orderCombinationOptions OrderCombinationOption[] @relation("OrderCombinationOptions")
 }
 
 model OptionGroup {
-  id                 String              @id @default(uuid()) @db.Uuid
-  name               String              @db.VarChar(80)
-  normalizedName     String              @unique @db.VarChar(80)
-  isActive           Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  dishOptionGroups   DishOptionGroup[]
-  optionGroupOptions OptionGroupOption[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  name                    String                   @db.VarChar(80)
+  normalizedName          String                   @unique @db.VarChar(80)
+  isActive                Boolean                  @default(true)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  dishOptionGroups        DishOptionGroup[]
+  optionGroupOptions      OptionGroupOption[]
+  orderCombinationOptions OrderCombinationOption[] @relation("OrderCombinationOptionGroups")
 }
 
 model DishOptionGroup {
@@ -242,6 +247,7 @@ model PricingTier {
   dishPrices       DishTierPrice[]
   optionPrices     OptionTierPrice[]
   companies        Company[]                @relation("CompanyPricingTier")
+  orders           Order[]                  @relation("OrderEffectivePricingTier")
 }
 
 model DishTierPrice {
@@ -291,6 +297,7 @@ model Company {
   holidays                   CompanyHoliday[]
   hiddenMenuCategories       CompanyHiddenMenuCategory[]
   hiddenMenuItems            CompanyHiddenMenuItem[]
+  orders                     Order[]                     @relation("CompanyOrders")
 }
 
 model CompanyEmailDomain {
@@ -315,6 +322,7 @@ model CompanyAddress {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orders       Order[]  @relation("CompanyAddressOrders")
 }
 
 model CompanyHoliday {
@@ -344,6 +352,7 @@ model Employee {
   allergens                EmployeeAllergen[]
   dietaryTags              EmployeeDietaryTag[]
   ownedCompany             Company?             @relation("CompanyOwner")
+  orders                   Order[]              @relation("EmployeeOrders")
 
   @@unique([companyId, email])
 }
@@ -410,4 +419,114 @@ model CompanyHiddenMenuItem {
   menuCategoryItem   MenuCategoryItem @relation(fields: [menuCategoryItemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@id([companyId, menuCategoryItemId])
+}
+
+enum OrderStatus {
+  DRAFT
+  PLACED
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+  REJECTED
+}
+
+model Order {
+  id                            String             @id @default(uuid()) @db.Uuid
+  employeeId                    String             @db.Uuid
+  companyId                     String             @db.Uuid
+  effectivePricingTierId        String             @db.Uuid
+  pricingTierNameSnapshot       String             @db.VarChar(80)
+  status                        OrderStatus        @default(DRAFT)
+  deliveryDate                  DateTime           @db.Date
+  cutoffAt                      DateTime           @db.Timestamptz(3)
+  sourceCompanyAddressId        String             @db.Uuid
+  deliveryAddressLabel          String             @db.VarChar(80)
+  deliveryAddressLine1          String             @db.VarChar(160)
+  deliveryAddressLine2          String?            @db.VarChar(160)
+  deliveryCity                  String             @db.VarChar(80)
+  deliveryStateRegion           String             @db.VarChar(80)
+  deliveryPostalCode            String             @db.VarChar(32)
+  deliveryCountry               String             @db.VarChar(80)
+  deliveryTimeMinutes           Int
+  deliveryMinutesBeforeSnapshot Int
+  packaging                     String             @db.VarChar(40)
+  driverInstructionsSnapshot    String?            @db.VarChar(1000)
+  totalMinorUnits               Int
+  createdAt                     DateTime           @default(now())
+  updatedAt                     DateTime           @updatedAt
+  employee                      Employee           @relation("EmployeeOrders", fields: [employeeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  company                       Company            @relation("CompanyOrders", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  effectivePricingTier          PricingTier        @relation("OrderEffectivePricingTier", fields: [effectivePricingTierId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceCompanyAddress          CompanyAddress     @relation("CompanyAddressOrders", fields: [sourceCompanyAddressId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lines                         OrderLine[]
+  statusEvents                  OrderStatusEvent[]
+
+  @@index([deliveryDate, status])
+  @@index([companyId, deliveryDate])
+  @@index([employeeId, deliveryDate])
+  @@index([effectivePricingTierId])
+}
+
+model OrderLine {
+  id                         String             @id @default(uuid()) @db.Uuid
+  orderId                    String             @db.Uuid
+  dishId                     String             @db.Uuid
+  dishNameSnapshot           String             @db.VarChar(120)
+  dishSkuSnapshot            String             @db.VarChar(64)
+  kitchenStationId           String?            @db.Uuid
+  kitchenStationNameSnapshot String?            @db.VarChar(80)
+  quantity                   Int
+  dishUnitPriceMinorUnits    Int
+  lineTotalMinorUnits        Int
+  createdAt                  DateTime           @default(now())
+  order                      Order              @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  dish                       Dish               @relation("DishOrderLines", fields: [dishId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  kitchenStation             KitchenStation?    @relation("KitchenStationOrderLines", fields: [kitchenStationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  combinations               OrderCombination[]
+
+  @@unique([orderId, dishId])
+  @@index([kitchenStationId])
+}
+
+model OrderCombination {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  orderLineId         String                   @db.Uuid
+  selectionKey        String
+  quantity            Int
+  unitPriceMinorUnits Int
+  totalMinorUnits     Int
+  createdAt           DateTime                 @default(now())
+  orderLine           OrderLine                @relation(fields: [orderLineId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  selectedOptions     OrderCombinationOption[]
+
+  @@unique([orderLineId, selectionKey])
+}
+
+model OrderCombinationOption {
+  orderCombinationId        String           @db.Uuid
+  optionGroupId             String           @db.Uuid
+  optionId                  String           @db.Uuid
+  optionGroupNameSnapshot   String           @db.VarChar(80)
+  optionNameSnapshot        String           @db.VarChar(80)
+  optionUnitPriceMinorUnits Int
+  orderCombination          OrderCombination @relation(fields: [orderCombinationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  optionGroup               OptionGroup      @relation("OrderCombinationOptionGroups", fields: [optionGroupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  option                    Option           @relation("OrderCombinationOptions", fields: [optionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([orderCombinationId, optionGroupId])
+  @@index([optionId])
+}
+
+model OrderStatusEvent {
+  id               String       @id @default(uuid()) @db.Uuid
+  orderId          String       @db.Uuid
+  fromStatus       OrderStatus?
+  toStatus         OrderStatus
+  occurredAt       DateTime     @default(now()) @db.Timestamptz(3)
+  actorStaffUserId String?      @db.Uuid
+  note             String?      @db.VarChar(500)
+  order            Order        @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  actorStaffUser   StaffUser?   @relation("OrderStatusEventActor", fields: [actorStaffUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([orderId, occurredAt])
 }

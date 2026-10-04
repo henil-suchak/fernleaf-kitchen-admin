@@ -1,12 +1,12 @@
 # Fernleaf Kitchen Operations Admin Panel
 
-This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, and Menu backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
+This repository currently contains the platform foundation, staff identity modeling, backend-only staff authentication and authorization, kitchen settings, reference data, Catalogue, Pricing, Companies, Employees, Menu, and Orders backends. It is a small TypeScript monorepo with a Next.js frontend, a NestJS API, and Prisma configured for PostgreSQL.
 
 ```text
 Browser -> Next.js (apps/web) -> HTTP -> NestJS (apps/api) -> Prisma -> PostgreSQL
 ```
 
-No Menu, Order, kitchen-workflow, dispatch, or billing models exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
+Kitchen workflow, dispatch, billing, and frontend business screens do not exist yet. The API health endpoint intentionally checks only that the HTTP application is reachable; it does not depend on a database connection.
 
 ## Prerequisites
 
@@ -83,6 +83,7 @@ npm run test:pricing --workspace=@fernleaf/api
 npm run test:companies --workspace=@fernleaf/api
 npm run test:employees --workspace=@fernleaf/api
 npm run test:menu --workspace=@fernleaf/api
+npm run test:orders --workspace=@fernleaf/api
 ```
 
 ## Backend authentication
@@ -339,6 +340,29 @@ Employee allergen and dietary-preference records are informational only and do n
 | `GET` | `/api/menu/preview/employees/:employeeId/categories/:categoryId` | `MENU_READ` | Preview one Category, including a secret Category. |
 
 Preview dynamically uses the Employee's Company tier or the active default tier through PricingResolver. Unpriced Dishes and Options are hidden; a Dish is hidden when a required OptionGroup has no active, priced Option. Future Orders will validate a Dish through Menu availability but will not persist Menu placement identity or let later Menu changes rewrite historical orders.
+
+## Orders backend
+
+Orders owns the immutable commercial record of what an Employee ordered for the Company that employed them at the time. It uses five models only: `Order`, `OrderLine`, `OrderCombination`, `OrderCombinationOption`, and `OrderStatusEvent`.
+
+An Order stores both `employeeId` and `companyId`; this is intentional historical denormalization because an Employee may later move Company. It snapshots the effective PricingTier identity/name, resolved selling prices, Dish/Option names, delivery address, delivery defaults, kitchen routing, and cutoff instant. It never recalculates historical money or names from current Catalogue, Pricing, Company, or Kitchen Settings data.
+
+Each Order line represents one Dish. Its combinations represent distinct selected OptionGroup/Option pairs, and their quantities must sum to the line quantity. `selectionKey` uses sorted `optionGroupId:optionId` pairs, so duplicate preparation configurations cannot be persisted. Historical selections reference OptionGroup and Option individually, but deliberately do not reference mutable `OptionGroupOption` membership rows.
+
+| Method | Endpoint | Permission | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/orders` | `ORDER_CREATE` | Create a fully valid Draft Order. |
+| `GET` | `/api/orders` | `ORDER_READ` | Paginated Order list with delivery, status, Company, and search filters. |
+| `GET` | `/api/orders/:id` | `ORDER_READ` | Read full historical Order detail and lifecycle timeline. |
+| `PUT` | `/api/orders/:id` | `ORDER_EDIT` | Edit Draft/Placed content before cutoff. Food replacement reprices submitted food only. |
+| `POST` | `/api/orders/:id/place` | `ORDER_EDIT` | Transition Draft to Placed before cutoff. |
+| `POST` | `/api/orders/:id/cancel` | `ORDER_EDIT` or `ORDER_OVERRIDE` | Cancel under the lifecycle rules. |
+| `PATCH` | `/api/orders/:id/delivery` | `ORDER_OVERRIDE` | Change confirmed delivery address/time/packaging only. |
+| `POST` | `/api/orders/cutoff/process` | `ORDER_OVERRIDE` | Idempotently cancel Drafts and confirm Placed Orders after their persisted cutoff. |
+
+Normal staff can cancel Draft/Placed Orders before cutoff. A user with `ORDER_OVERRIDE` can cancel eligible Draft/Placed Orders after cutoff and Confirmed Orders; Delivered, Cancelled, and Rejected Orders cannot be cancelled. Every state transition writes an `OrderStatusEvent`.
+
+The idempotent Prisma seed creates deterministic UUID-backed examples for Draft, Placed, Confirmed, Delivered, Cancelled, and Rejected Orders using dates relative to the configured Kitchen timezone. It does not overwrite an existing seeded Order.
 
 ## Environment variables
 
